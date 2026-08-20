@@ -6,9 +6,12 @@
 #import "Common.h"
 
 #include <stdint.h>
-#include <sys/proc_info.h>
 #include <sys/resource.h>
 #include <sys/types.h>
+
+#ifndef PROC_PIDPATHINFO_MAXSIZE
+#define PROC_PIDPATHINFO_MAXSIZE 4096
+#endif
 
 extern NSDictionary *prefs;
 
