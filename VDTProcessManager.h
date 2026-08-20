@@ -5,8 +5,8 @@
 
 #import "Common.h"
 
-#include <libproc/libproc.h>
-#include <libproc/libproc_internal.h>
+#include <libproc.h>
+#include <libproc_internal.h>
 
 extern NSDictionary *prefs;
 
