@@ -20,7 +20,7 @@
 ```make
 THEOS_PACKAGE_SCHEME = roothide
 ARCHS = arm64e
-TARGET = iphone:clang:latest:15.0
+TARGET = iphone:clang:15.6:15.0
 ```
 
 运行时访问 bootstrap 内的 PreferenceBundle、LaunchDaemons 和工具目录均使用 RootHide 的 `jbroot(...)` API，没有硬编码 `/var/jb`。包架构由 RootHide Theos 生成为 `iphoneos-arm64e`。
@@ -36,7 +36,7 @@ gmake clean
 gmake package FINALPACKAGE=1 DEBUG=0 THEOS_PACKAGE_SCHEME=roothide ARCHS=arm64e
 ```
 
-输出位于 `packages/*.deb`。GitHub Actions 工作流 `.github/workflows/build-roothide.yml` 会安装固定版本的 RootHide Theos 和经 SHA-256 校验的 RootHide AltList，构建后验证：
+输出位于 `packages/*.deb`。GitHub Actions 工作流 `.github/workflows/build-roothide.yml` 会安装固定版本的 RootHide Theos、Theos patched iOS 15.6 SDK 和经 SHA-256 校验的 RootHide AltList，构建后验证：
 
 - deb 架构是 `iphoneos-arm64e`；
 - tweak dylib 与 PreferenceBundle executable 都包含 `arm64e`；
