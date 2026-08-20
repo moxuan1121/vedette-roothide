@@ -122,8 +122,12 @@ static void arm_monitor(VDTTemporaryProcess *process){
     }
     proc_disable_cpumon(process.pid);
     if (proc_set_cpumon_params(process.pid, (int)process.triggerCPU, (int)process.interval) == 0){
-        proc_resume_cpumon(process.pid);
-        process.state = VDTTemporaryStateMonitoring;
+        if (proc_resume_cpumon(process.pid) == 0){
+            process.state = VDTTemporaryStateMonitoring;
+        }else{
+            proc_disable_cpumon(process.pid);
+            remove_process(process, NO);
+        }
     }else{
         remove_process(process, NO);
     }

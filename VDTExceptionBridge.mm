@@ -21,9 +21,55 @@ static exception_behavior_t savedBehaviors[EXC_TYPES_COUNT];
 static thread_state_flavor_t savedFlavors[EXC_TYPES_COUNT];
 static mach_msg_type_number_t savedCount = 0;
 static BOOL bridgeInstalled = NO;
+static BOOL bridgeRequested = NO;
+static dispatch_queue_t bridgeQueue;
+static dispatch_source_t bridgeWatchdog;
 
 static NSString *bridge_notification(NSString *action, pid_t pid){
     return [NSString stringWithFormat:@"com.udevs.vedette.temp.%@.%d", action, pid];
+}
+
+static dispatch_queue_t bridge_queue(void){
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        bridgeQueue = dispatch_queue_create("com.udevs.vedette.exception-bridge", DISPATCH_QUEUE_SERIAL);
+    });
+    return bridgeQueue;
+}
+
+static void release_saved_ports(void){
+    for (mach_msg_type_number_t idx = 0; idx < savedCount; idx++){
+        if (MACH_PORT_VALID(savedPorts[idx])){
+            mach_port_deallocate(mach_task_self(), savedPorts[idx]);
+        }
+    }
+    savedCount = 0;
+}
+
+static BOOL bridge_is_current(void){
+    if (!bridgeInstalled || !MACH_PORT_VALID(bridgePort)) return NO;
+
+    exception_mask_t masks[EXC_TYPES_COUNT] = {};
+    mach_port_t ports[EXC_TYPES_COUNT] = {};
+    exception_behavior_t behaviors[EXC_TYPES_COUNT] = {};
+    thread_state_flavor_t flavors[EXC_TYPES_COUNT] = {};
+    mach_msg_type_number_t count = EXC_TYPES_COUNT;
+    kern_return_t kr = task_get_exception_ports(
+        mach_task_self(), EXC_MASK_RESOURCE, masks, &count, ports, behaviors, flavors
+    );
+    BOOL current = kr == KERN_SUCCESS;
+    if (current){
+        current = NO;
+        for (mach_msg_type_number_t idx = 0; idx < count; idx++){
+            if ((masks[idx] & EXC_MASK_RESOURCE) && ports[idx] == bridgePort){
+                current = YES;
+            }
+        }
+    }
+    for (mach_msg_type_number_t idx = 0; idx < count; idx++){
+        if (MACH_PORT_VALID(ports[idx])) mach_port_deallocate(mach_task_self(), ports[idx]);
+    }
+    return current;
 }
 
 static void restore_exception_bridge(void){
@@ -37,25 +83,24 @@ static void restore_exception_bridge(void){
             mach_task_self(), savedMasks[idx] & EXC_MASK_RESOURCE, savedPorts[idx],
             savedBehaviors[idx], savedFlavors[idx]
         );
-        if (MACH_PORT_VALID(savedPorts[idx])){
-            mach_port_deallocate(mach_task_self(), savedPorts[idx]);
-        }
     }
-    savedCount = 0;
+    release_saved_ports();
     bridgeInstalled = NO;
-    if (MACH_PORT_VALID(bridgePort)){
-        mach_port_mod_refs(mach_task_self(), bridgePort, MACH_PORT_RIGHT_RECEIVE, -1);
-        mach_port_deallocate(mach_task_self(), bridgePort);
-        bridgePort = MACH_PORT_NULL;
-    }
+    // Keep the process-local receive port and its server alive. A process can
+    // move between modes repeatedly; reusing the port avoids a dead server
+    // after disable -> enable while still restoring the application's handler.
 }
 
 static void install_exception_bridge(void){
-    if (bridgeInstalled){
-        notify_post(bridge_notification(@"ready", getpid()).UTF8String);
+    if (bridge_is_current()){
         return;
     }
 
+    // An application crash reporter may replace EXC_MASK_RESOURCE after our
+    // constructor runs. Preserve the newest downstream handler, then put the
+    // Vedette bridge back in front of it. This is only an exception-port check;
+    // it never samples process CPU during normal monitoring.
+    release_saved_ports();
     savedCount = EXC_TYPES_COUNT;
     kern_return_t kr = task_get_exception_ports(
         mach_task_self(), EXC_MASK_RESOURCE, savedMasks, &savedCount,
@@ -65,15 +110,17 @@ static void install_exception_bridge(void){
         savedCount = 0;
         return;
     }
-    kr = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &bridgePort);
-    if (kr != KERN_SUCCESS){
-        restore_exception_bridge();
-        return;
-    }
-    kr = mach_port_insert_right(mach_task_self(), bridgePort, bridgePort, MACH_MSG_TYPE_MAKE_SEND);
-    if (kr != KERN_SUCCESS){
-        restore_exception_bridge();
-        return;
+    if (!MACH_PORT_VALID(bridgePort)){
+        kr = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &bridgePort);
+        if (kr != KERN_SUCCESS){
+            restore_exception_bridge();
+            return;
+        }
+        kr = mach_port_insert_right(mach_task_self(), bridgePort, bridgePort, MACH_MSG_TYPE_MAKE_SEND);
+        if (kr != KERN_SUCCESS){
+            restore_exception_bridge();
+            return;
+        }
     }
     kr = task_set_exception_ports(
         mach_task_self(), EXC_MASK_RESOURCE, bridgePort,
@@ -86,10 +133,32 @@ static void install_exception_bridge(void){
 
     bridgeInstalled = YES;
     notify_post(bridge_notification(@"ready", getpid()).UTF8String);
-    mach_port_t serverPort = bridgePort;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        mach_msg_server(mach_exc_server, 4096, serverPort, MACH_MSG_OPTION_NONE);
+    static dispatch_once_t serverOnce;
+    dispatch_once(&serverOnce, ^{
+        mach_port_t serverPort = bridgePort;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            mach_msg_server(mach_exc_server, 4096, serverPort, MACH_MSG_OPTION_NONE);
+        });
     });
+}
+
+static void update_bridge_watchdog(void){
+    if (!bridgeRequested){
+        if (bridgeWatchdog){
+            dispatch_source_cancel(bridgeWatchdog);
+            bridgeWatchdog = nil;
+        }
+        return;
+    }
+    if (bridgeWatchdog) return;
+    bridgeWatchdog = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, bridge_queue());
+    dispatch_source_set_timer(bridgeWatchdog,
+        dispatch_time(DISPATCH_TIME_NOW, 2ull * NSEC_PER_SEC),
+        2ull * NSEC_PER_SEC, 250ull * NSEC_PER_MSEC);
+    dispatch_source_set_event_handler(bridgeWatchdog, ^{
+        if (bridgeRequested) install_exception_bridge();
+    });
+    dispatch_resume(bridgeWatchdog);
 }
 
 void VDTPrepareTemporaryMonitorBridge(void){
@@ -99,11 +168,15 @@ void VDTPrepareTemporaryMonitorBridge(void){
     int enableToken = 0;
     int disableToken = 0;
     notify_register_dispatch(enableName.UTF8String, &enableToken,
-        dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^(__unused int token) {
+        bridge_queue(), ^(__unused int token) {
+            bridgeRequested = YES;
             install_exception_bridge();
+            update_bridge_watchdog();
         });
     notify_register_dispatch(disableName.UTF8String, &disableToken,
-        dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^(__unused int token) {
+        bridge_queue(), ^(__unused int token) {
+            bridgeRequested = NO;
+            update_bridge_watchdog();
             restore_exception_bridge();
         });
 }

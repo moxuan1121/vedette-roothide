@@ -198,7 +198,15 @@ static void restoreAllMonitors(){
                             uint64_t pid = 0;
                             notify_get_state(token, &pid);
                             if (pid > 0){
-                                received_new_proc((pid_t)pid);
+                                // Resolve a newly launched process on the same
+                                // queue as preference reloads. Otherwise an app
+                                // can report itself before VDTSetPrefs() runs and
+                                // accidentally receive the default policy rather
+                                // than its configured temporary-throttle policy.
+                                dispatch_async(vedette_serial_queue(), ^{
+                                    if (!VDTGetPrefs()) reloadPrefsSync();
+                                    received_new_proc((pid_t)pid);
+                                });
                             }
                         });
                         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, (CFNotificationCallback)reloadPrefs, (CFStringRef)PREFS_CHANGED_NN, NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
