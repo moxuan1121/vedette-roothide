@@ -45,7 +45,8 @@ static void restore_exception_bridge(void){
     savedCount = 0;
     bridgeInstalled = NO;
     if (MACH_PORT_VALID(bridgePort)){
-        mach_port_destroy(mach_task_self(), bridgePort);
+        mach_port_mod_refs(mach_task_self(), bridgePort, MACH_PORT_RIGHT_RECEIVE, -1);
+        mach_port_deallocate(mach_task_self(), bridgePort);
         bridgePort = MACH_PORT_NULL;
     }
 }
