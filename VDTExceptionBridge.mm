@@ -1,10 +1,16 @@
 #import "VDTExceptionBridge.h"
 #import "Common.h"
 
-#include <mach/exc_resource.h>
 #include <mach/mach.h>
 #include <mach/mach_exc.h>
 #include <notify.h>
+
+// exc_resource.h is private and is absent from some patched Theos SDKs.
+// These values are stable XNU ABI fields encoded in EXC_RESOURCE code[0].
+#define VDT_EXC_RESOURCE_TYPE(code) (((uint64_t)(code) >> 61) & 0x7ULL)
+#define VDT_EXC_RESOURCE_FLAVOR(code) (((uint64_t)(code) >> 58) & 0x7ULL)
+#define VDT_RESOURCE_TYPE_CPU 1
+#define VDT_FLAVOR_CPU_MONITOR 1
 
 static mach_port_t bridgePort = MACH_PORT_NULL;
 static exception_mask_t savedMasks[EXC_TYPES_COUNT];
@@ -113,8 +119,8 @@ kern_return_t catch_mach_exception_raise(
     mach_msg_type_number_t codeCount
 ){
     BOOL isCPUMonitor = exception == EXC_RESOURCE && codeCount >= 1 &&
-        EXC_RESOURCE_DECODE_RESOURCE_TYPE(code[0]) == RESOURCE_TYPE_CPU &&
-        EXC_RESOURCE_DECODE_FLAVOR(code[0]) == FLAVOR_CPU_MONITOR;
+        VDT_EXC_RESOURCE_TYPE(code[0]) == VDT_RESOURCE_TYPE_CPU &&
+        VDT_EXC_RESOURCE_FLAVOR(code[0]) == VDT_FLAVOR_CPU_MONITOR;
     if (MACH_PORT_VALID(thread)) mach_port_deallocate(mach_task_self(), thread);
     if (MACH_PORT_VALID(task)) mach_port_deallocate(mach_task_self(), task);
     if (!isCPUMonitor){
