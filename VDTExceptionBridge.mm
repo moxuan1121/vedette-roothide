@@ -5,6 +5,8 @@
 #include <notify.h>
 #include "VDTMachExc.h"
 
+extern "C" boolean_t mach_exc_server(mach_msg_header_t *request, mach_msg_header_t *reply);
+
 // exc_resource.h is private and is absent from some patched Theos SDKs.
 // These values are stable XNU ABI fields encoded in EXC_RESOURCE code[0].
 #define VDT_EXC_RESOURCE_TYPE(code) (((uint64_t)(code) >> 61) & 0x7ULL)
