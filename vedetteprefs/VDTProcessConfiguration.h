@@ -11,6 +11,8 @@
 @interface VDTProcessConfiguration : PSListController{
     PSSpecifier *_intervalSpecifier;
     PSSpecifier *_enabledSpecifier;
+    PSSpecifier *_throttleLimitSpecifier;
+    PSSpecifier *_recoveryCPUSpecifier;
 }
 
 @end

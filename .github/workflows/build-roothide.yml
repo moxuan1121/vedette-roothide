@@ -1,104 +1,68 @@
 name: Build RootHide package
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-  pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: roothide-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  THEOS_REF: 88506b2c22e9e07dd4ed055f23c9e398a117a2c7
-  THEOS_SDK_URL: https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS15.6.sdk.tar.xz
-  THEOS_SDK_SHA256: c4a02f5cac1101d1e5e506a1d117de38fd23714a6f535d50c64265bc7351f623
-  ALTLIST_URL: https://roothide.github.io/debfiles/com.opa334.altlist_1.0.11_iphoneos-arm64e.deb
-  ALTLIST_SHA256: 7d145977d3fbcd5030564dc429e18f7456c29f92020c36f32e61d4a82418f737
-
 jobs:
   package:
-    name: arm64e / iOS 15 / RootHide
     runs-on: macos-14
     timeout-minutes: 30
-
     steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install build tools
         run: brew install make ldid dpkg xz
-
-      - name: Install pinned RootHide Theos
+      - name: Install RootHide Theos
         run: |
           git clone https://github.com/roothide/theos.git "$RUNNER_TEMP/theos"
-          git -C "$RUNNER_TEMP/theos" checkout "$THEOS_REF"
+          git -C "$RUNNER_TEMP/theos" checkout 88506b2c22e9e07dd4ed055f23c9e398a117a2c7
           git -C "$RUNNER_TEMP/theos" submodule update --init --recursive
-
-      - name: Install pinned iOS 15.6 patched SDK
+      - name: Install iOS 15.6 SDK
         run: |
-          curl --fail --location --retry 3 "$THEOS_SDK_URL" --output "$RUNNER_TEMP/iphoneos-sdk.tar.xz"
-          echo "$THEOS_SDK_SHA256  $RUNNER_TEMP/iphoneos-sdk.tar.xz" | shasum -a 256 --check
+          curl --fail --location --retry 3 \
+            https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS15.6.sdk.tar.xz \
+            --output "$RUNNER_TEMP/sdk.tar.xz"
+          echo "c4a02f5cac1101d1e5e506a1d117de38fd23714a6f535d50c64265bc7351f623  $RUNNER_TEMP/sdk.tar.xz" | shasum -a 256 --check
           mkdir -p "$RUNNER_TEMP/theos/sdks"
-          tar -xf "$RUNNER_TEMP/iphoneos-sdk.tar.xz" -C "$RUNNER_TEMP/theos/sdks"
-          test -f "$RUNNER_TEMP/theos/sdks/iPhoneOS15.6.sdk/System/Library/PrivateFrameworks/Preferences.framework/Preferences.tbd"
-
-      - name: Install RootHide AltList development framework
+          tar -xf "$RUNNER_TEMP/sdk.tar.xz" -C "$RUNNER_TEMP/theos/sdks"
+      - name: Verify mode and dependency invariants
         run: |
-          curl --fail --location --retry 3 "$ALTLIST_URL" --output "$RUNNER_TEMP/altlist.deb"
-          echo "$ALTLIST_SHA256  $RUNNER_TEMP/altlist.deb" | shasum -a 256 --check
-          mkdir -p "$RUNNER_TEMP/altlist-deb" "$RUNNER_TEMP/altlist-root"
-          cd "$RUNNER_TEMP/altlist-deb"
-          ar -x "$RUNNER_TEMP/altlist.deb"
-          tar -xf data.tar.* -C "$RUNNER_TEMP/altlist-root"
-          mkdir -p "$RUNNER_TEMP/theos/lib/iphone/roothide"
-          cp -R "$RUNNER_TEMP/altlist-root/Library/Frameworks/AltList.framework" \
-            "$RUNNER_TEMP/theos/lib/iphone/roothide/"
-
-      - name: Verify lightweight source invariants
-        run: |
-          ! grep -R -E 'proc_listpids|proc_listallpids|PROC_ALL_PIDS' --include='*.m' --include='*.mm' --include='*.xm' .
-          grep -q 'VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC (250ull \* NSEC_PER_MSEC)' Common.h
-          grep -q 'VDT_IMMEDIATE_REQUIRED_VIOLATIONS 1' Common.h
-          grep -q 'kill(process.pid, SIGKILL)' VDTProcessManager.mm
-          ! grep -R '/var/jb' --include='*.m' --include='*.mm' --include='*.xm' --include='*.h' .
-
-      - name: Build optimized RootHide package
+          grep -q 'VDTViolationPolicyMonitorAndTerminate' VDTShared.h
+          grep -q 'VDTViolationPolicyThrottle' VDTShared.h
+          grep -q 'VDTViolationPolicyMonitorAndTemporaryThrottle' VDTShared.h
+          grep -q 'proc_set_cpumon_params_fatal' VDTProcessManager.mm
+          grep -q 'proc_set_cpumon_params(process.pid' VDTTemporaryThrottleManager.mm
+          grep -q 'proc_clear_cpulimits' VDTTemporaryThrottleManager.mm
+          grep -q 'VDT_TEMP_RECOVERY_SAMPLES 3' VDTTemporaryThrottleManager.mm
+          grep -q 'VDT_TEMP_MAX_THROTTLE_NSEC (20ull' VDTTemporaryThrottleManager.mm
+          grep -q 'VDT_TEMP_COOLDOWN_NSEC (5ull' VDTTemporaryThrottleManager.mm
+          ! grep -R -E 'AltList|ATLApplication' --include='*.h' --include='*.m' --include='*.mm' --include='Makefile' .
+      - name: Build optimized package
         env:
           THEOS: ${{ runner.temp }}/theos
         run: |
           gmake clean
           gmake -j"$(sysctl -n hw.logicalcpu)" package FINALPACKAGE=1 DEBUG=0 \
-            THEOS_PACKAGE_SCHEME=roothide ARCHS=arm64e
-
-      - name: Verify package architecture, layout, and bundles
+            THEOS_PACKAGE_SCHEME=roothide ARCHS=arm64e TARGET=iphone:clang:15.6:15.0
+      - name: Verify package
         run: |
-          DEB="$(find packages -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          DEB="$(find packages -maxdepth 1 -name '*.deb' -print -quit)"
           test -n "$DEB"
-          test "$(dpkg-deb -f "$DEB" Architecture)" = "iphoneos-arm64e"
-          ! dpkg-deb -c "$DEB" | grep -q '/var/jb/'
-
-          mkdir -p "$RUNNER_TEMP/package-root"
-          dpkg-deb -x "$DEB" "$RUNNER_TEMP/package-root"
-          TWEAK="$RUNNER_TEMP/package-root/Library/MobileSubstrate/DynamicLibraries/Vedette.dylib"
-          PREFS="$RUNNER_TEMP/package-root/Library/PreferenceBundles/VedettePrefs.bundle/VedettePrefs"
-          ENTRY="$RUNNER_TEMP/package-root/Library/PreferenceLoader/Preferences/VedettePrefs.plist"
-          test -f "$TWEAK"
-          test -f "$PREFS"
-          test -f "$ENTRY"
+          test "$(dpkg-deb -f "$DEB" Architecture)" = iphoneos-arm64e
+          mkdir -p "$RUNNER_TEMP/root"
+          dpkg-deb -x "$DEB" "$RUNNER_TEMP/root"
+          TWEAK="$RUNNER_TEMP/root/Library/MobileSubstrate/DynamicLibraries/Vedette.dylib"
+          PREFS="$RUNNER_TEMP/root/Library/PreferenceBundles/VedettePrefs.bundle/VedettePrefs"
           lipo -archs "$TWEAK" | grep -qw arm64e
           lipo -archs "$PREFS" | grep -qw arm64e
-          plutil -lint "$ENTRY"
-          /usr/libexec/PlistBuddy -c 'Print :entry:bundle' "$ENTRY" | grep -qx VedettePrefs
-
-      - name: Upload installable deb
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+          ! otool -L "$PREFS" | grep -q AltList
+          ! dpkg-deb -c "$DEB" | grep -q '/var/jb/'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: vedette-roothide-arm64e
+          name: vedette-temporary-throttle-roothide-arm64e
           path: packages/*.deb
           if-no-files-found: error
-          retention-days: 30

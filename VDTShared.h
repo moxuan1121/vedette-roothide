@@ -15,7 +15,7 @@ typedef NS_ENUM(NSUInteger, VDTViolationPolicy) {
     VDTViolationPolicyMonitor,
     VDTViolationPolicyMonitorAndTerminate,
     VDTViolationPolicyThrottle,
-    VDTViolationPolicyImmediateTerminate
+    VDTViolationPolicyMonitorAndTemporaryThrottle
 };
 
 #ifdef __cplusplus
@@ -32,7 +32,6 @@ id valueForProcessConfigKey(NSString *identifier, NSString *key, id defaultValue
 id valueForProcessConfigKeyWithPrefs(NSString *identifier, NSString *key, id defaultValue, VDTConfigType type, NSDictionary *prefs);
 void setValueForProcessConfigKey(NSString *identifier, NSString *key, id value, VDTConfigType type);
 void setValueForProcessConfigKeyWithPrefs(NSString *identifier, NSString *key, id value, VDTConfigType type, NSDictionary *prefs);
-BOOL VDTIsProtectedProcessIdentifier(NSString *identifier);
 
 #ifdef __cplusplus
 }

@@ -89,6 +89,7 @@
 	NSMutableArray* mutableSpecifiers = (NSMutableArray*)specifiers;
 	for(PSSpecifier* specifier in mutableSpecifiers)
 	{
+		HBLogDebug(@"title:%@",specifier.properties[@"label"]);
 		specifier.name = specifier.properties[@"label"];
 		[specifier setProperty:specifier.properties[@"footerText"] forKey:@"footerText"];
 	}

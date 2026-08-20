@@ -4,18 +4,37 @@
 //  file 'LICENSE', which is part of this source code package.
 
 #include <Foundation/Foundation.h>
+#include <HBLog.h>
 #include <objc/runtime.h>
 #include <roothide.h>
 
 #define VEDETTE_IDENTIFIER @"com.udevs.vedette"
-#define PREFS_PATH @"/var/mobile/Library/Preferences/com.udevs.vedette.plist"
-#define PREFS_PATH_TMP @"/var/tmp/com.udevs.vedette.plist"
+
+// Runtime-resolved paths for roothide compatibility.
+// jbroot() returns the original path on rootless, remapped path on roothide.
+static inline NSString *VDTPrefsPath(void) {
+    static NSString *path;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        path = jbroot(@"/var/mobile/Library/Preferences/com.udevs.vedette.plist");
+    });
+    return path;
+}
+
+static inline NSString *VDTPrefsPathTmp(void) {
+    static NSString *path;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        path = jbroot(@"/var/tmp/com.udevs.vedette.plist");
+    });
+    return path;
+}
+
+#define PREFS_PATH VDTPrefsPath()
+#define PREFS_PATH_TMP VDTPrefsPathTmp()
 
 #define NOTIFY_PID_NN "com.udevs.vedette.notify-pid"
 #define PREFS_CHANGED_NN @"com.udevs.vedette.prefschanged"
 #define RESTORE_ALL_MONITORS_NN @"com.udevs.vedette.restore-all-monitors"
 
-// One shared sampler is created only while at least one immediate target is alive.
-#define VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC (250ull * NSEC_PER_MSEC)
-#define VDT_IMMEDIATE_SAMPLE_LEEWAY_NSEC (25ull * NSEC_PER_MSEC)
-#define VDT_IMMEDIATE_REQUIRED_VIOLATIONS 1
+#define VDT_JBROOT_PATH(path) jbroot(@(path))

@@ -13,12 +13,12 @@
         NSMutableArray *rootSpecifiers = [[NSMutableArray alloc] init];
         
         //Tweak
-        PSSpecifier *tweakEnabledGroupSpec = [PSSpecifier preferenceSpecifierNamed:@"Tweak" target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
+        PSSpecifier *tweakEnabledGroupSpec = [PSSpecifier preferenceSpecifierNamed:@"Vedette" target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
         //[tweakEnabledGroupSpec setProperty:@"Changing this requires a respring using the dedicated \"Apply\" button." forKey:@"footerText"];
         [rootSpecifiers addObject:tweakEnabledGroupSpec];
         
-        PSSpecifier *tweakEnabledSpec = [PSSpecifier preferenceSpecifierNamed:@"Enabled" target:self set:@selector(setPreferenceValue:specifier:) get:@selector(readPreferenceValue:) detail:nil cell:PSSwitchCell edit:nil];
-        [tweakEnabledSpec setProperty:@"Enabled" forKey:@"label"];
+        PSSpecifier *tweakEnabledSpec = [PSSpecifier preferenceSpecifierNamed:@"总开关" target:self set:@selector(setPreferenceValue:specifier:) get:@selector(readPreferenceValue:) detail:nil cell:PSSwitchCell edit:nil];
+        [tweakEnabledSpec setProperty:@"总开关" forKey:@"label"];
         [tweakEnabledSpec setProperty:@"enabled" forKey:@"key"];
         [tweakEnabledSpec setProperty:@YES forKey:@"default"];
         [tweakEnabledSpec setProperty:VEDETTE_IDENTIFIER forKey:@"defaults"];
@@ -27,11 +27,11 @@
         
         
         //Manage
-        PSSpecifier *manageGroupSpec = [PSSpecifier preferenceSpecifierNamed:@"Manage" target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
+        PSSpecifier *manageGroupSpec = [PSSpecifier preferenceSpecifierNamed:@"管理目标" target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
         [rootSpecifiers addObject:manageGroupSpec];
         
         //Apps
-        PSSpecifier *altListSpec = [PSSpecifier preferenceSpecifierNamed:@"Applications" target:nil set:@selector(setPreferenceValue:specifier:) get:@selector(readPreferenceValue:) detail:NSClassFromString(@"VDTApplicationListSubcontrollerController") cell:PSLinkListCell edit:nil];
+        PSSpecifier *altListSpec = [PSSpecifier preferenceSpecifierNamed:@"应用程序" target:nil set:@selector(setPreferenceValue:specifier:) get:@selector(readPreferenceValue:) detail:NSClassFromString(@"VDTApplicationListSubcontrollerController") cell:PSLinkListCell edit:nil];
         [altListSpec setProperty:@"VDTProcessConfiguration" forKey:@"subcontrollerClass"];
         [altListSpec setProperty:@"Applications" forKey:@"label"];
         [altListSpec setProperty:@[
@@ -45,16 +45,16 @@
         [rootSpecifiers addObject:altListSpec];
 
         //Daemons
-        PSSpecifier *daemonListSpec = [PSSpecifier preferenceSpecifierNamed:@"Daemons" target:nil set:nil get:nil detail:NSClassFromString(@"CHPDaemonListController") cell:PSLinkCell edit:nil];
+        PSSpecifier *daemonListSpec = [PSSpecifier preferenceSpecifierNamed:@"系统进程" target:nil set:nil get:nil detail:NSClassFromString(@"CHPDaemonListController") cell:PSLinkCell edit:nil];
         [rootSpecifiers addObject:daemonListSpec];
         
         //reset
         PSSpecifier *resetGroupSpec = [PSSpecifier preferenceSpecifierNamed:@"" target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
-        [resetGroupSpec setProperty:@"Reset everything to default." forKey:@"footerText"];
+        [resetGroupSpec setProperty:@"清除全部进程配置并恢复默认值。" forKey:@"footerText"];
         [rootSpecifiers addObject:resetGroupSpec];
         
-        PSSpecifier *resetSpec = [PSSpecifier preferenceSpecifierNamed:@"Reset" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-        [resetSpec setProperty:@"Reset" forKey:@"label"];
+        PSSpecifier *resetSpec = [PSSpecifier preferenceSpecifierNamed:@"恢复默认设置" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+        [resetSpec setProperty:@"恢复默认设置" forKey:@"label"];
         [resetSpec setButtonAction:@selector(reset)];
         [rootSpecifiers addObject:resetSpec];
         
@@ -63,32 +63,32 @@
         [rootSpecifiers addObject:blankSpecGroup];
         
         //Support Dev
-        PSSpecifier *supportDevGroupSpec = [PSSpecifier preferenceSpecifierNamed:@"Development" target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
+        PSSpecifier *supportDevGroupSpec = [PSSpecifier preferenceSpecifierNamed:@"开发者" target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
         [rootSpecifiers addObject:supportDevGroupSpec];
         
-        PSSpecifier *supportDevSpec = [PSSpecifier preferenceSpecifierNamed:@"Support Development" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
-        [supportDevSpec setProperty:@"Support Development" forKey:@"label"];
+        PSSpecifier *supportDevSpec = [PSSpecifier preferenceSpecifierNamed:@"支持开发" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
+        [supportDevSpec setProperty:@"支持开发" forKey:@"label"];
         [supportDevSpec setButtonAction:@selector(donation)];
-        [supportDevSpec setProperty:[UIImage imageWithContentsOfFile:jbroot(@"/Library/PreferenceBundles/VedettePrefs.bundle/PayPal.png")] forKey:@"iconImage"];
+        [supportDevSpec setProperty:[UIImage imageWithContentsOfFile:VDT_JBROOT_PATH("/Library/PreferenceBundles/VedettePrefs.bundle/PayPal.png")] forKey:@"iconImage"];
         [rootSpecifiers addObject:supportDevSpec];
         
         
         //Contact
-        PSSpecifier *contactGroupSpec = [PSSpecifier preferenceSpecifierNamed:@"Contact" target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
+        PSSpecifier *contactGroupSpec = [PSSpecifier preferenceSpecifierNamed:@"联系" target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
         [rootSpecifiers addObject:contactGroupSpec];
         
         //Twitter
         PSSpecifier *twitterSpec = [PSSpecifier preferenceSpecifierNamed:@"Twitter" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
         [twitterSpec setProperty:@"Twitter" forKey:@"label"];
         [twitterSpec setButtonAction:@selector(twitter)];
-        [twitterSpec setProperty:[UIImage imageWithContentsOfFile:jbroot(@"/Library/PreferenceBundles/VedettePrefs.bundle/Twitter.png")] forKey:@"iconImage"];
+        [twitterSpec setProperty:[UIImage imageWithContentsOfFile:VDT_JBROOT_PATH("/Library/PreferenceBundles/VedettePrefs.bundle/Twitter.png")] forKey:@"iconImage"];
         [rootSpecifiers addObject:twitterSpec];
         
         //Reddit
         PSSpecifier *redditSpec = [PSSpecifier preferenceSpecifierNamed:@"Reddit" target:self set:nil get:nil detail:nil cell:PSButtonCell edit:nil];
         [redditSpec setProperty:@"Twitter" forKey:@"label"];
         [redditSpec setButtonAction:@selector(reddit)];
-        [redditSpec setProperty:[UIImage imageWithContentsOfFile:jbroot(@"/Library/PreferenceBundles/VedettePrefs.bundle/Reddit.png")] forKey:@"iconImage"];
+        [redditSpec setProperty:[UIImage imageWithContentsOfFile:VDT_JBROOT_PATH("/Library/PreferenceBundles/VedettePrefs.bundle/Reddit.png")] forKey:@"iconImage"];
         [rootSpecifiers addObject:redditSpec];
         
         //udevs
@@ -116,7 +116,7 @@
     
     
     UIImage *headerImage = [[UIImage alloc]
-                            initWithContentsOfFile:[[NSBundle bundleWithPath:jbroot(@"/Library/PreferenceBundles/VedettePrefs.bundle")] pathForResource:@"Vedette512" ofType:@"png"]];
+                            initWithContentsOfFile:[[NSBundle bundleWithPath:VDT_JBROOT_PATH("/Library/PreferenceBundles/VedettePrefs.bundle")] pathForResource:@"Vedette512" ofType:@"png"]];
     UIImageView *imageView = [[UIImageView alloc] initWithFrame:Imageframe];
     [imageView setImage:headerImage];
     [imageView setContentMode:UIViewContentModeScaleAspectFit];
@@ -136,7 +136,7 @@
     
     self.table.tableHeaderView = headerView;
     
-    self.respringBtn = [[UIBarButtonItem alloc] initWithTitle:@"Respring" style:UIBarButtonItemStylePlain target:self action:@selector(_reallyRespring)];
+    self.respringBtn = [[UIBarButtonItem alloc] initWithTitle:@"注销桌面" style:UIBarButtonItemStylePlain target:self action:@selector(_reallyRespring)];
     self.navigationItem.rightBarButtonItem = self.respringBtn;
 }
 
@@ -168,7 +168,7 @@
 
 -(void)reset{
     
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Vedette" message:@"Reset everything back to default?" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Vedette" message:@"确定清除全部配置并恢复默认设置吗？" preferredStyle:UIAlertControllerStyleAlert];
     
     UIAlertAction *yesAction = [UIAlertAction actionWithTitle:@"Yes" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action){
         
@@ -203,7 +203,7 @@
         }
     }];
     
-    UIAlertAction *noAction = [UIAlertAction actionWithTitle:@"No" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+    UIAlertAction *noAction = [UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
     }];
     
     [alert addAction:yesAction];
