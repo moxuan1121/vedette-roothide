@@ -7,6 +7,7 @@
 #import "VDTProcessConfiguration.h"
 #import "../PrivateHeaders.h"
 #import "../VDTShared.h"
+#import <objc/message.h>
 
 static NSString *VDTApplicationDisplayName(LSApplicationProxy *proxy){
     NSBundle *bundle = [NSBundle bundleWithURL:proxy.bundleURL];
@@ -18,6 +19,17 @@ static NSString *VDTApplicationDisplayName(LSApplicationProxy *proxy){
         displayName = proxy.bundleExecutable;
     }
     return displayName.length > 0 ? displayName : proxy.bundleIdentifier;
+}
+
+static UIImage *VDTApplicationIcon(NSString *bundleIdentifier){
+    SEL selector = NSSelectorFromString(@"_applicationIconImageForBundleIdentifier:format:scale:");
+    if (![UIImage respondsToSelector:selector]){
+        return nil;
+    }
+    typedef UIImage *(*IconFunction)(id, SEL, NSString *, NSInteger, CGFloat);
+    IconFunction iconFunction = (IconFunction)objc_msgSend;
+    UIImage *icon = iconFunction(UIImage.class, selector, bundleIdentifier, 2, UIScreen.mainScreen.scale);
+    return icon ?: iconFunction(UIImage.class, selector, bundleIdentifier, 0, UIScreen.mainScreen.scale);
 }
 
 @implementation VDTApplicationListSubcontrollerController
@@ -72,6 +84,10 @@ static NSString *VDTApplicationDisplayName(LSApplicationProxy *proxy){
             [specifier setProperty:@(VDTConfigTypeApp) forKey:@"configurationType"];
             [specifier setProperty:identifier forKey:@"applicationIdentifier"];
             [specifier setProperty:@YES forKey:@"enabled"];
+            UIImage *icon = VDTApplicationIcon(identifier);
+            if (icon){
+                [specifier setProperty:icon forKey:@"iconImage"];
+            }
             [specifiers addObject:specifier];
         }
         _specifiers = specifiers;

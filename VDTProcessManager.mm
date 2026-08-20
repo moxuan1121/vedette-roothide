@@ -36,6 +36,7 @@ static dispatch_source_t immediateTimer;
 static NSMutableDictionary<NSNumber *, VDTManagedProcess *> *managedProcesses;
 static NSDictionary *managerPrefs;
 static uint64_t startupGraceAbsoluteTicks;
+static uint64_t sampleIntervalNsec = VDT_DEFAULT_SAMPLE_INTERVAL_MSEC * NSEC_PER_MSEC;
 
 static void initialize_process_manager(void){
     static dispatch_once_t onceToken;
@@ -188,6 +189,28 @@ static NSUInteger immediate_process_count(void){
     return managedProcesses.count;
 }
 
+static uint64_t configured_sample_interval_nsec(void){
+    NSInteger milliseconds = [valueForKeyWithPrefs(@"sampleIntervalMilliseconds", managerPrefs) integerValue];
+    if (milliseconds == 0){
+        milliseconds = VDT_DEFAULT_SAMPLE_INTERVAL_MSEC;
+    }
+    milliseconds = MAX(VDT_MIN_SAMPLE_INTERVAL_MSEC, MIN(VDT_MAX_SAMPLE_INTERVAL_MSEC, milliseconds));
+    return (uint64_t)milliseconds * NSEC_PER_MSEC;
+}
+
+static void schedule_immediate_timer(void){
+    if (!immediateTimer){
+        return;
+    }
+    uint64_t leeway = MIN(25ull * NSEC_PER_MSEC, sampleIntervalNsec / 10);
+    dispatch_source_set_timer(
+        immediateTimer,
+        dispatch_time(DISPATCH_TIME_NOW, sampleIntervalNsec),
+        sampleIntervalNsec,
+        leeway
+    );
+}
+
 static void stop_immediate_timer_if_idle(void){
     if (immediateTimer && immediate_process_count() == 0){
         dispatch_source_cancel(immediateTimer);
@@ -271,12 +294,8 @@ static void ensure_immediate_timer(void){
     }
 
     immediateTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, processQueue);
-    dispatch_source_set_timer(
-        immediateTimer,
-        dispatch_time(DISPATCH_TIME_NOW, VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC),
-        VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC,
-        VDT_IMMEDIATE_SAMPLE_LEEWAY_NSEC
-    );
+    sampleIntervalNsec = configured_sample_interval_nsec();
+    schedule_immediate_timer();
     dispatch_source_set_event_handler(immediateTimer, ^{
         @autoreleasepool {
             sample_immediate_processes();
@@ -318,6 +337,11 @@ void update_process_preferences(NSDictionary *newPrefs){
     NSDictionary *prefsCopy = [newPrefs copy] ?: @{};
     dispatch_async(processQueue, ^{
         managerPrefs = prefsCopy;
+        uint64_t newSampleInterval = configured_sample_interval_nsec();
+        if (newSampleInterval != sampleIntervalNsec){
+            sampleIntervalNsec = newSampleInterval;
+            schedule_immediate_timer();
+        }
         NSArray<NSNumber *> *pidKeys = managedProcesses.allKeys.copy;
         for (NSNumber *pidKey in pidKeys){
             VDTManagedProcess *process = managedProcesses[pidKey];

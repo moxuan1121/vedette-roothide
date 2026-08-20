@@ -5,6 +5,7 @@
 
 #import "VDTRootListController.h"
 #import "../VDTShared.h"
+#import "PrivateHeaders.h"
 
 @implementation VDTRootListController
 
@@ -31,6 +32,30 @@
         [enabled setProperty:VEDETTE_IDENTIFIER forKey:@"defaults"];
         [enabled setProperty:PREFS_CHANGED_NN forKey:@"PostNotification"];
         [specifiers addObject:enabled];
+
+        PSTextFieldSpecifier *sampleInterval = [PSTextFieldSpecifier
+            preferenceSpecifierNamed:@"检测周期（毫秒）"
+            target:self
+            set:@selector(setPreferenceValue:specifier:)
+            get:@selector(readPreferenceValue:)
+            detail:nil cell:PSEditTextCell edit:nil];
+        [sampleInterval setKeyboardType:UIKeyboardTypeNumberPad
+                               autoCaps:UITextAutocapitalizationTypeNone
+                         autoCorrection:UITextAutocorrectionTypeNo];
+        [sampleInterval setPlaceholder:@"250"];
+        [sampleInterval setProperty:@VDT_DEFAULT_SAMPLE_INTERVAL_MSEC forKey:@"default"];
+        [sampleInterval setProperty:@"sampleIntervalMilliseconds" forKey:@"key"];
+        [sampleInterval setProperty:VEDETTE_IDENTIFIER forKey:@"defaults"];
+        [sampleInterval setProperty:PREFS_CHANGED_NN forKey:@"PostNotification"];
+        [specifiers addObject:sampleInterval];
+
+        PSSpecifier *intervalHelp = [PSSpecifier
+            preferenceSpecifierNamed:nil
+            target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
+        [intervalHelp setProperty:
+            @"允许手动输入 50～5000 毫秒，默认 250 毫秒。数值越小响应越快，但常驻 CPU 开销也越高；所有目标共用同一个检测周期。"
+            forKey:@"footerText"];
+        [specifiers addObject:intervalHelp];
 
         PSSpecifier *targetsGroup = [PSSpecifier
             preferenceSpecifierNamed:@"监控目标"
@@ -76,6 +101,20 @@
 }
 
 - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier{
+    if ([[specifier propertyForKey:@"key"] isEqualToString:@"sampleIntervalMilliseconds"]){
+        NSInteger milliseconds = [value integerValue];
+        if (milliseconds < VDT_MIN_SAMPLE_INTERVAL_MSEC || milliseconds > VDT_MAX_SAMPLE_INTERVAL_MSEC){
+            UIAlertController *alert = [UIAlertController
+                alertControllerWithTitle:@"检测周期无效"
+                message:@"请输入 50 到 5000 之间的毫秒数。默认值为 250 毫秒。"
+                preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleCancel handler:nil]];
+            [self presentViewController:alert animated:YES completion:nil];
+            [self reloadSpecifier:specifier animated:YES];
+            return;
+        }
+        value = @(milliseconds);
+    }
     setValueForKey([specifier propertyForKey:@"key"], value);
 }
 

@@ -1,6 +1,6 @@
 Package: com.udevs.vedette
 Name: Vedette
-Version: 2.0.3
+Version: 2.0.4
 Architecture: iphoneos-arm
 Description: Lightweight immediate CPU-limit termination for selected processes
 Maintainer: udevs

@@ -43,7 +43,7 @@
             preferenceSpecifierNamed:@"立即终止"
             target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
         [group setProperty:
-            @"新进程启动后有 1.5 秒宽限期。宽限期结束后，CPU 达到阈值一次即会在下一次约 250 毫秒采样时强制终止。100% 约等于占满一个 CPU 核。"
+            @"新进程启动后有 1.5 秒宽限期。宽限期结束后，CPU 达到阈值一次即会在下一次检测时强制终止。检测周期可在 Vedette 主页面设置。100% 约等于占满一个 CPU 核。"
             forKey:@"footerText"];
         [specifiers addObject:group];
 

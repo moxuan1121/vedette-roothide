@@ -50,7 +50,12 @@ jobs:
           ! grep -R -E 'proc_listpids|proc_listallpids|PROC_ALL_PIDS' --include='*.m' --include='*.mm' --include='*.xm' .
           ! grep -R -E 'monitor_pids|throttle_pids|proc_setcpu_percentage|proc_set_cpumon|VDTViolationPolicy' --include='*.h' --include='*.m' --include='*.mm' --include='*.xm' .
           ! grep -R -E 'AltList|ATLApplication' --include='*.h' --include='*.m' --include='*.mm' --include='Makefile' .
-          grep -q 'VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC (250ull \* NSEC_PER_MSEC)' Common.h
+          grep -q 'VDT_DEFAULT_SAMPLE_INTERVAL_MSEC 250' Common.h
+          grep -q 'VDT_MIN_SAMPLE_INTERVAL_MSEC 50' Common.h
+          grep -q 'VDT_MAX_SAMPLE_INTERVAL_MSEC 5000' Common.h
+          grep -q 'sampleIntervalMilliseconds' VDTProcessManager.mm
+          grep -q 'schedule_immediate_timer' VDTProcessManager.mm
+          grep -q 'iconImage' vedetteprefs/VDTApplicationListSubcontrollerController.m
           grep -q 'VDT_IMMEDIATE_STARTUP_GRACE_NSEC (1500ull \* NSEC_PER_MSEC)' Common.h
           grep -q 'VDT_IMMEDIATE_REQUIRED_VIOLATIONS 1' Common.h
           grep -q 'VDT_MAX_CPU_PERCENTAGE 800' Common.h
