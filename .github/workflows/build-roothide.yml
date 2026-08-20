@@ -15,6 +15,8 @@ concurrency:
 
 env:
   THEOS_REF: 88506b2c22e9e07dd4ed055f23c9e398a117a2c7
+  THEOS_SDK_URL: https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS15.6.sdk.tar.xz
+  THEOS_SDK_SHA256: c4a02f5cac1101d1e5e506a1d117de38fd23714a6f535d50c64265bc7351f623
   ALTLIST_URL: https://roothide.github.io/debfiles/com.opa334.altlist_1.0.11_iphoneos-arm64e.deb
   ALTLIST_SHA256: 7d145977d3fbcd5030564dc429e18f7456c29f92020c36f32e61d4a82418f737
 
@@ -36,6 +38,14 @@ jobs:
           git clone https://github.com/roothide/theos.git "$RUNNER_TEMP/theos"
           git -C "$RUNNER_TEMP/theos" checkout "$THEOS_REF"
           git -C "$RUNNER_TEMP/theos" submodule update --init --recursive
+
+      - name: Install pinned iOS 15.6 patched SDK
+        run: |
+          curl --fail --location --retry 3 "$THEOS_SDK_URL" --output "$RUNNER_TEMP/iphoneos-sdk.tar.xz"
+          echo "$THEOS_SDK_SHA256  $RUNNER_TEMP/iphoneos-sdk.tar.xz" | shasum -a 256 --check
+          mkdir -p "$RUNNER_TEMP/theos/sdks"
+          tar -xf "$RUNNER_TEMP/iphoneos-sdk.tar.xz" -C "$RUNNER_TEMP/theos/sdks"
+          test -f "$RUNNER_TEMP/theos/sdks/iPhoneOS15.6.sdk/System/Library/PrivateFrameworks/Preferences.framework/Preferences.tbd"
 
       - name: Install RootHide AltList development framework
         run: |
