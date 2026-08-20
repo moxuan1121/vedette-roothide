@@ -53,7 +53,7 @@
 
 - (NSString*)topTitle
 {
-	return @"Daemons";
+	return @"系统进程";
 }
 
 - (NSString*)plistName
@@ -133,7 +133,7 @@ extern NSString* previewStringForSettings(NSDictionary* settings);
 
 - (id)previewStringForSpecifier:(PSSpecifier*)specifier
 {
-    return [valueForProcessConfigKey([specifier propertyForKey:@"daemonName"], @"enabled", nil, VDTConfigTypeDaemon) boolValue] ? @"Enabled" : @"";
+    return [valueForProcessConfigKey([specifier propertyForKey:@"daemonName"], @"enabled", nil, VDTConfigTypeDaemon) boolValue] ? @"已启用" : @"";
 }
 
 - (void)reloadValueOfSelectedSpecifier

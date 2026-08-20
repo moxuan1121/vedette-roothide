@@ -1,11 +1,11 @@
 Package: com.udevs.vedette
 Name: Vedette
-Version: 2.0.1
+Version: 2.0.2
 Architecture: iphoneos-arm
-Description: Lightweight immediate CPU-limit termination for selected processes
+Description: 轻量 CPU 超限立即终止工具
 Maintainer: udevs
 Author: udevs
 Section: Tweaks
-Depends: firmware (>= 15.0), mobilesubstrate (>= 0.9.5000), preferenceloader, com.opa334.altlist (>= 1.0.4)
+Depends: firmware (>= 15.0), mobilesubstrate (>= 0.9.5000), preferenceloader
 Icon: https://udevsharold.github.io/repo/depictions/com.udevs.vedette/icon/icon.png
 Depiction: https://udevsharold.github.io/repo/depictions/?p=com.udevs.vedette

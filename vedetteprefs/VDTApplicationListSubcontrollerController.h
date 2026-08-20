@@ -4,8 +4,12 @@
 //  file 'LICENSE', which is part of this source code package.
 
 #import "../Common.h"
-#import <AltList/ATLApplicationListSubcontrollerController.h>
+#import "ChoicyPreferences/CHPListController.h"
 
-@interface VDTApplicationListSubcontrollerController : ATLApplicationListSubcontrollerController
+@interface VDTApplicationListSubcontrollerController : CHPListController
+{
+    NSArray *_applications;
+}
 
+- (PSSpecifier *)specifierForApplicationWithIdentifier:(NSString *)applicationID;
 @end

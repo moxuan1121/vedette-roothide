@@ -17,8 +17,6 @@ env:
   THEOS_REF: 88506b2c22e9e07dd4ed055f23c9e398a117a2c7
   THEOS_SDK_URL: https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS15.6.sdk.tar.xz
   THEOS_SDK_SHA256: c4a02f5cac1101d1e5e506a1d117de38fd23714a6f535d50c64265bc7351f623
-  ALTLIST_URL: https://roothide.github.io/debfiles/com.opa334.altlist_1.0.11_iphoneos-arm64e.deb
-  ALTLIST_SHA256: 7d145977d3fbcd5030564dc429e18f7456c29f92020c36f32e61d4a82418f737
 
 jobs:
   package:
@@ -47,23 +45,14 @@ jobs:
           tar -xf "$RUNNER_TEMP/iphoneos-sdk.tar.xz" -C "$RUNNER_TEMP/theos/sdks"
           test -f "$RUNNER_TEMP/theos/sdks/iPhoneOS15.6.sdk/System/Library/PrivateFrameworks/Preferences.framework/Preferences.tbd"
 
-      - name: Install RootHide AltList development framework
-        run: |
-          curl --fail --location --retry 3 "$ALTLIST_URL" --output "$RUNNER_TEMP/altlist.deb"
-          echo "$ALTLIST_SHA256  $RUNNER_TEMP/altlist.deb" | shasum -a 256 --check
-          mkdir -p "$RUNNER_TEMP/altlist-deb" "$RUNNER_TEMP/altlist-root"
-          cd "$RUNNER_TEMP/altlist-deb"
-          ar -x "$RUNNER_TEMP/altlist.deb"
-          tar -xf data.tar.* -C "$RUNNER_TEMP/altlist-root"
-          mkdir -p "$RUNNER_TEMP/theos/lib/iphone/roothide"
-          cp -R "$RUNNER_TEMP/altlist-root/Library/Frameworks/AltList.framework" \
-            "$RUNNER_TEMP/theos/lib/iphone/roothide/"
-
       - name: Verify lightweight source invariants
         run: |
           ! grep -R -E 'proc_listpids|proc_listallpids|PROC_ALL_PIDS' --include='*.m' --include='*.mm' --include='*.xm' .
+          ! grep -R -E 'monitor_pids|throttle_pids|proc_setcpu_percentage|proc_set_cpumon|VDTViolationPolicy' --include='*.h' --include='*.m' --include='*.mm' --include='*.xm' .
+          ! grep -R -E 'AltList|ATLApplication' --include='*.h' --include='*.m' --include='*.mm' --include='Makefile' .
           grep -q 'VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC (250ull \* NSEC_PER_MSEC)' Common.h
           grep -q 'VDT_IMMEDIATE_REQUIRED_VIOLATIONS 1' Common.h
+          grep -q '((double)elapsedCPU \* 100.0) / (double)elapsedAbsolute' VDTProcessManager.mm
           grep -q 'kill(process.pid, SIGKILL)' VDTProcessManager.mm
           grep -q 'notify_new_pid(NOTIFY_PID_NN, (uint64_t)getpid());' Vedette.xm
           ! grep -q 'processEnabled' Vedette.xm
@@ -94,6 +83,7 @@ jobs:
           test -f "$ENTRY"
           lipo -archs "$TWEAK" | grep -qw arm64e
           lipo -archs "$PREFS" | grep -qw arm64e
+          ! otool -L "$PREFS" | grep -q 'AltList'
           plutil -lint "$ENTRY"
           /usr/libexec/PlistBuddy -c 'Print :entry:bundle' "$ENTRY" | grep -qx VedettePrefs
 

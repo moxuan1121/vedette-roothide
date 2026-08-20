@@ -24,7 +24,6 @@ NSDictionary *prefs;
 @property(nonatomic) uint64_t previousCPUTime;
 @property(nonatomic) uint64_t previousSampleTime;
 @property(nonatomic) NSUInteger consecutiveViolations;
-@property(nonatomic) VDTViolationPolicy appliedPolicy;
 @property(nonatomic) NSUInteger percentage;
 @end
 
@@ -35,14 +34,12 @@ static dispatch_queue_t processQueue;
 static dispatch_source_t immediateTimer;
 static NSMutableDictionary<NSNumber *, VDTManagedProcess *> *managedProcesses;
 static NSDictionary *managerPrefs;
-static mach_timebase_info_data_t timebaseInfo;
 
 static void initialize_process_manager(void){
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         processQueue = dispatch_queue_create("com.udevs.vedette.process-monitor", DISPATCH_QUEUE_SERIAL);
         managedProcesses = [NSMutableDictionary dictionary];
-        mach_timebase_info(&timebaseInfo);
     });
 }
 
@@ -170,16 +167,6 @@ static BOOL process_config_enabled(VDTManagedProcess *process){
         [valueForProcessConfigKeyWithPrefs(process.identifier, @"enabled", @NO, process.type, managerPrefs) boolValue];
 }
 
-static VDTViolationPolicy configured_policy(VDTManagedProcess *process){
-    return (VDTViolationPolicy)[valueForProcessConfigKeyWithPrefs(
-        process.identifier,
-        @"violationPolicy",
-        @(VDTViolationPolicyImmediateTerminate),
-        process.type,
-        managerPrefs
-    ) unsignedIntegerValue];
-}
-
 static NSUInteger configured_percentage(VDTManagedProcess *process){
     NSInteger percentage = [valueForProcessConfigKeyWithPrefs(
         process.identifier,
@@ -191,51 +178,8 @@ static NSUInteger configured_percentage(VDTManagedProcess *process){
     return (NSUInteger)MAX(1, MIN(100, percentage));
 }
 
-void monitor_pids(NSArray<NSNumber *> *pids, NSArray<NSNumber *> *percentages, NSArray<NSNumber *> *intervals){
-    NSUInteger count = MIN(pids.count, MIN(percentages.count, intervals.count));
-    for (NSUInteger idx = 0; idx < count; idx++){
-        pid_t pid = pids[idx].intValue;
-        if (pid <= 0){
-            continue;
-        }
-
-        int percentage = percentages[idx].intValue;
-        int interval = intervals[idx].intValue;
-        proc_disable_cpumon(pid);
-        if (percentage > 0 && interval > 0){
-            proc_set_cpumon_params_fatal(pid, percentage, interval);
-        }else{
-            proc_set_cpumon_defaults(pid);
-        }
-        proc_resume_cpumon(pid);
-    }
-}
-
-void throttle_pids(NSArray<NSNumber *> *pids, NSArray<NSNumber *> *percentages){
-    NSUInteger count = MIN(pids.count, percentages.count);
-    for (NSUInteger idx = 0; idx < count; idx++){
-        pid_t pid = pids[idx].intValue;
-        if (pid <= 0){
-            continue;
-        }
-
-        int percentage = percentages[idx].intValue;
-        if (percentage > 0){
-            proc_setcpu_percentage(pid, PROC_SETCPU_ACTION_THROTTLE, percentage);
-        }else{
-            proc_clear_cpulimits(pid);
-        }
-    }
-}
-
 static NSUInteger immediate_process_count(void){
-    NSUInteger count = 0;
-    for (VDTManagedProcess *process in managedProcesses.allValues){
-        if (process.appliedPolicy == VDTViolationPolicyImmediateTerminate){
-            count++;
-        }
-    }
-    return count;
+    return managedProcesses.count;
 }
 
 static void stop_immediate_timer_if_idle(void){
@@ -252,13 +196,8 @@ static void remove_managed_process(NSNumber *pidKey){
 
 static BOOL immediate_policy_still_enabled(VDTManagedProcess *process){
     return process_config_enabled(process) &&
-        configured_policy(process) == VDTViolationPolicyImmediateTerminate &&
         !VDTIsProtectedProcessIdentifier(process.identifier) &&
         !VDTIsProtectedProcessIdentifier(process.executablePath.lastPathComponent);
-}
-
-static double nanoseconds_from_absolute_delta(uint64_t delta){
-    return ((double)delta * (double)timebaseInfo.numer) / (double)timebaseInfo.denom;
 }
 
 static void sample_immediate_processes(void){
@@ -267,12 +206,10 @@ static void sample_immediate_processes(void){
 
     for (NSNumber *pidKey in pidKeys){
         VDTManagedProcess *process = managedProcesses[pidKey];
-        if (process.appliedPolicy != VDTViolationPolicyImmediateTerminate){
-            continue;
-        }
-
         struct rusage_info_v2 usage;
-        if (!identity_matches_process(process, &usage) || !immediate_policy_still_enabled(process)){
+        if (!copy_process_rusage(process.pid, &usage) ||
+            usage.ri_proc_start_abstime != process.startTime ||
+            !immediate_policy_still_enabled(process)){
             remove_managed_process(pidKey);
             continue;
         }
@@ -286,9 +223,10 @@ static void sample_immediate_processes(void){
         process.previousCPUTime = currentCPUTime;
         process.previousSampleTime = now;
 
-        double elapsedNanoseconds = nanoseconds_from_absolute_delta(elapsedAbsolute);
-        double cpuPercentage = elapsedNanoseconds > 0.0
-            ? ((double)elapsedCPU * 100.0) / elapsedNanoseconds
+        // ri_user_time, ri_system_time, and mach_absolute_time are all Mach
+        // absolute-time ticks. Dividing them directly keeps the units equal.
+        double cpuPercentage = elapsedAbsolute > 0
+            ? ((double)elapsedCPU * 100.0) / (double)elapsedAbsolute
             : 0.0;
 
         if (cpuPercentage >= (double)process.percentage){
@@ -334,73 +272,28 @@ static void ensure_immediate_timer(void){
     dispatch_resume(immediateTimer);
 }
 
-static void clear_applied_policy(VDTManagedProcess *process){
-    BOOL identityIsCurrent = identity_matches_process(process, NULL);
-    switch (process.appliedPolicy){
-        case VDTViolationPolicyMonitorAndTerminate:
-            if (identityIsCurrent){
-                monitor_pids(@[@(process.pid)], @[@0], @[@0]);
-            }
-            break;
-        case VDTViolationPolicyThrottle:
-            if (identityIsCurrent){
-                throttle_pids(@[@(process.pid)], @[@0]);
-            }
-            break;
-        default:
-            break;
-    }
-    process.appliedPolicy = VDTViolationPolicyNone;
-    process.consecutiveViolations = 0;
-}
-
 static void apply_configuration(VDTManagedProcess *process){
-    clear_applied_policy(process);
     if (!identity_matches_process(process, NULL) || !process_config_enabled(process)){
         remove_managed_process(@(process.pid));
         return;
     }
 
-    VDTViolationPolicy policy = configured_policy(process);
-    NSUInteger percentage = configured_percentage(process);
-    switch (policy){
-        case VDTViolationPolicyImmediateTerminate: {
-            if (VDTIsProtectedProcessIdentifier(process.identifier) ||
-                VDTIsProtectedProcessIdentifier(process.executablePath.lastPathComponent)){
-                remove_managed_process(@(process.pid));
-                return;
-            }
-            struct rusage_info_v2 usage;
-            if (!identity_matches_process(process, &usage)){
-                remove_managed_process(@(process.pid));
-                return;
-            }
-            process.percentage = percentage;
-            process.previousCPUTime = usage.ri_user_time + usage.ri_system_time;
-            process.previousSampleTime = mach_absolute_time();
-            process.consecutiveViolations = 0;
-            process.appliedPolicy = policy;
-            ensure_immediate_timer();
-            break;
-        }
-        case VDTViolationPolicyMonitorAndTerminate: {
-            NSInteger interval = [valueForProcessConfigKeyWithPrefs(
-                process.identifier, @"interval", @120, process.type, managerPrefs
-            ) integerValue];
-            interval = MAX(1, interval);
-            monitor_pids(@[@(process.pid)], @[@(percentage)], @[@(interval)]);
-            process.appliedPolicy = policy;
-            break;
-        }
-        case VDTViolationPolicyThrottle:
-            throttle_pids(@[@(process.pid)], @[@(percentage)]);
-            process.appliedPolicy = policy;
-            break;
-        default:
-            remove_managed_process(@(process.pid));
-            break;
+    if (VDTIsProtectedProcessIdentifier(process.identifier) ||
+        VDTIsProtectedProcessIdentifier(process.executablePath.lastPathComponent)){
+        remove_managed_process(@(process.pid));
+        return;
     }
-    stop_immediate_timer_if_idle();
+
+    struct rusage_info_v2 usage;
+    if (!identity_matches_process(process, &usage)){
+        remove_managed_process(@(process.pid));
+        return;
+    }
+    process.percentage = configured_percentage(process);
+    process.previousCPUTime = usage.ri_user_time + usage.ri_system_time;
+    process.previousSampleTime = mach_absolute_time();
+    process.consecutiveViolations = 0;
+    ensure_immediate_timer();
 }
 
 void update_process_preferences(NSDictionary *newPrefs){
@@ -443,9 +336,6 @@ void received_new_proc(pid_t pid){
 void restore_all_managed_processes(void){
     initialize_process_manager();
     dispatch_async(processQueue, ^{
-        for (VDTManagedProcess *process in managedProcesses.allValues.copy){
-            clear_applied_policy(process);
-        }
         [managedProcesses removeAllObjects];
         stop_immediate_timer_if_idle();
     });

@@ -15,7 +15,7 @@
 		<key>isController</key>
 		<true/>
 		<key>label</key>
-		<string>Vedette</string>
+		<string>Vedette CPU 保护</string>
 	</dict>
 </dict>
 </plist>

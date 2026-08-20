@@ -4,7 +4,6 @@
 //  file 'LICENSE', which is part of this source code package.
 
 @interface PSSpecifier (Private)
--(void)setValues:(id)arg1 titles:(id)arg2;
 - (void)setKeyboardType:(UIKeyboardType)type autoCaps:(UITextAutocapitalizationType)autoCaps autoCorrection:(UITextAutocorrectionType)autoCorrection;
 @end
 
