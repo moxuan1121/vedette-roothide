@@ -3,10 +3,7 @@
 
 #include <mach/mach.h>
 #include <notify.h>
-
-// The MIG mach_exc header is not shipped by every patched iOS SDK, while
-// libsystem_kernel still exports the generated server demultiplexer.
-extern "C" boolean_t mach_exc_server(mach_msg_header_t *request, mach_msg_header_t *reply);
+#include "VDTMachExc.h"
 
 // exc_resource.h is private and is absent from some patched Theos SDKs.
 // These values are stable XNU ABI fields encoded in EXC_RESOURCE code[0].

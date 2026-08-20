@@ -1,2 +1,5 @@
 .theos/
 packages/
+VDTMachExc.h
+VDTMachExcServer.c
+VDTMachExcUser.c

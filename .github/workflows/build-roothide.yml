@@ -41,6 +41,16 @@ jobs:
           grep -q 'VDT_TEMP_MAX_THROTTLE_NSEC (20ull' VDTTemporaryThrottleManager.mm
           grep -q 'VDT_TEMP_COOLDOWN_NSEC (5ull' VDTTemporaryThrottleManager.mm
           ! grep -R -E 'AltList|ATLApplication' --include='*.h' --include='*.m' --include='*.mm' --include='Makefile' .
+      - name: Generate 64-bit Mach exception server
+        run: |
+          SDK="$RUNNER_TEMP/theos/sdks/iPhoneOS15.6.sdk"
+          xcrun mig -arch arm64 -isysroot "$SDK" \
+            -header VDTMachExc.h \
+            -server VDTMachExcServer.c \
+            -user VDTMachExcUser.c \
+            "$SDK/usr/include/mach/mach_exc.defs"
+          test -s VDTMachExc.h
+          test -s VDTMachExcServer.c
       - name: Build optimized package
         env:
           THEOS: ${{ runner.temp }}/theos

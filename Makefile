@@ -17,7 +17,7 @@ include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = Vedette
 
-Vedette_FILES = $(wildcard *.xm) $(wildcard *.mm)
+Vedette_FILES = $(wildcard *.xm) $(wildcard *.mm) $(wildcard VDTMachExcServer.c)
 Vedette_CFLAGS = -fobjc-arc -O2 -DNDEBUG -I$(THEOS_PROJECT_DIR)
 Vedette_CCFLAGS = -O2 -DNDEBUG
 
