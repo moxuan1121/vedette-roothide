@@ -5,8 +5,6 @@ THEOS_PACKAGE_SCHEME = roothide
 export DEBUG = 0
 export FINALPACKAGE = 1
 
-export PREFIX ?= $(THEOS)/toolchain/Xcode11.xctoolchain/usr/bin/
-
 ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
 TARGET := iphone:clang:16.5:15.0
 else
