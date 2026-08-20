@@ -65,6 +65,8 @@ jobs:
           grep -q 'VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC (250ull \* NSEC_PER_MSEC)' Common.h
           grep -q 'VDT_IMMEDIATE_REQUIRED_VIOLATIONS 1' Common.h
           grep -q 'kill(process.pid, SIGKILL)' VDTProcessManager.mm
+          grep -q 'notify_new_pid(NOTIFY_PID_NN, (uint64_t)getpid());' Vedette.xm
+          ! grep -q 'processEnabled' Vedette.xm
           ! grep -R '/var/jb' --include='*.m' --include='*.mm' --include='*.xm' --include='*.h' .
 
       - name: Build optimized RootHide package

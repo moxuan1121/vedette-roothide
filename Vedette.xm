@@ -10,8 +10,6 @@
 #include <notify.h>
 
 static int notifyPIDToken;
-static BOOL currentProcessIsApplication;
-static NSString *currentProcessIdentifier;
 
 static void notify_new_pid(const char *notificationName, uint64_t pid){
     int token = 0;
@@ -23,26 +21,6 @@ static void notify_new_pid(const char *notificationName, uint64_t pid){
     notify_cancel(token);
 }
 
-static BOOL master_enabled_in_preferences(NSDictionary *currentPrefs){
-    id enabledValue = valueForKeyWithPrefs(@"enabled", currentPrefs);
-    return enabledValue ? [enabledValue boolValue] : YES;
-}
-
-static void notify_current_process_if_enabled(void){
-    if (currentProcessIdentifier.length == 0){
-        return;
-    }
-
-    NSDictionary *currentPrefs = getPrefs();
-    VDTConfigType type = currentProcessIsApplication ? VDTConfigTypeApp : VDTConfigTypeDaemon;
-    BOOL processEnabled = [valueForProcessConfigKeyWithPrefs(
-        currentProcessIdentifier, @"enabled", @NO, type, currentPrefs
-    ) boolValue];
-    if (master_enabled_in_preferences(currentPrefs) && processEnabled){
-        notify_new_pid(NOTIFY_PID_NN, (uint64_t)getpid());
-    }
-}
-
 static void preferences_changed_callback(CFNotificationCenterRef center,
                                          void *observer,
                                          CFStringRef name,
@@ -52,18 +30,6 @@ static void preferences_changed_callback(CFNotificationCenterRef center,
         prefs = getPrefs();
         update_process_preferences(prefs);
     }
-}
-
-static void self_preferences_changed_callback(CFNotificationCenterRef center,
-                                              void *observer,
-                                              CFStringRef name,
-                                              const void *object,
-                                              CFDictionaryRef userInfo){
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        @autoreleasepool {
-            notify_current_process_if_enabled();
-        }
-    });
 }
 
 static void restore_monitors_callback(CFNotificationCenterRef center,
@@ -118,10 +84,10 @@ static void restore_monitors_callback(CFNotificationCenterRef center,
             return;
         }
 
-        currentProcessIsApplication =
+        BOOL currentProcessIsApplication =
             [executablePath containsString:@"/Application"] ||
             [executablePath containsString:@"/CoreServices"];
-        currentProcessIdentifier = currentProcessIsApplication
+        NSString *currentProcessIdentifier = currentProcessIsApplication
             ? NSBundle.mainBundle.bundleIdentifier
             : processName;
 
@@ -129,16 +95,10 @@ static void restore_monitors_callback(CFNotificationCenterRef center,
             return;
         }
 
-        // This observer does no CPU work. It only lets an already-running target
-        // announce itself when the user enables it, avoiding a system-wide PID scan.
-        CFNotificationCenterAddObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            NULL,
-            self_preferences_changed_callback,
-            (CFStringRef)PREFS_CHANGED_NN,
-            NULL,
-            CFNotificationSuspensionBehaviorDeliverImmediately
-        );
-        notify_current_process_if_enabled();
+        // Sandboxed apps cannot reliably read Vedette's preferences outside
+        // their container. Announce this PID once at process startup and let
+        // runningboardd, which owns the monitor, read and enforce the config.
+        // Disabled targets are rejected there before any CPU timer is created.
+        notify_new_pid(NOTIFY_PID_NN, (uint64_t)getpid());
     }
 }

@@ -10,6 +10,7 @@
 - 当前连续超限次数常量为 1；将 `VDT_IMMEDIATE_REQUIRED_VIOLATIONS` 改为 2 即可扩展为连续两次超限。
 - 目标退出或身份校验失败后移除 PID；没有立即模式目标时销毁 timer，完全停止 CPU 采样。
 - 不记录 CPU 历史、不绘图、不建数据库，采样路径中没有高频日志。
+- App/daemon 启动时只发送一次 PID 通知，不在受沙盒限制的目标进程中读取 Vedette 全局偏好；`runningboardd` 负责读取配置，未明确启用的目标不会进入 CPU 采样。
 
 执行 SIGKILL 前会重新核对进程启动时间、executable 路径以及 bundle identifier 或 daemon 名称，以防 PID 失效和 PID 重用。`launchd`、`SpringBoard`、`backboardd`、`runningboardd`、`kernel_task`、`installd`、`jailbreakd` 以及 RootHide/Dopamine 核心辅助进程被硬保护，不能使用立即终止。
 
@@ -26,6 +27,8 @@ TARGET = iphone:clang:15.6:15.0
 运行时访问 bootstrap 内的 PreferenceBundle、LaunchDaemons 和工具目录均使用 RootHide 的 `jbroot(...)` API，没有硬编码 `/var/jb`。包架构由 RootHide Theos 生成为 `iphoneos-arm64e`。
 
 RootHide 默认不会向第三方 App 注入 tweak。若要监控 App Store App，需要先在 RootHide Bootstrap 的 App List 中为该 App 启用 tweak injection；之后 App 每次以新 PID 启动都会重新上报并自动恢复监控。系统 daemon 同样在每次重新启动后上报新 PID。
+
+在 Vedette 中首次启用一个已经运行的 App 后，请完整终止并重新打开该 App，使新进程执行一次启动 PID 上报。这个设计避免了偏好设置变化时让所有注入进程同时读取配置或广播 PID，也不需要扫描全系统进程。
 
 ## 构建
 
