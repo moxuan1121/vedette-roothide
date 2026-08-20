@@ -113,7 +113,7 @@ void VDTRequestTemporaryMonitorBridge(pid_t pid, BOOL enabled){
     notify_post(name.UTF8String);
 }
 
-kern_return_t catch_mach_exception_raise(
+extern "C" kern_return_t catch_mach_exception_raise(
     __unused mach_port_t exceptionPort,
     mach_port_t thread,
     mach_port_t task,
@@ -134,7 +134,7 @@ kern_return_t catch_mach_exception_raise(
     return KERN_SUCCESS;
 }
 
-kern_return_t catch_mach_exception_raise_state(
+extern "C" kern_return_t catch_mach_exception_raise_state(
     __unused mach_port_t exceptionPort, __unused exception_type_t exception,
     __unused const mach_exception_data_t code, __unused mach_msg_type_number_t codeCount,
     __unused int *flavor, __unused const thread_state_t oldState,
@@ -144,7 +144,7 @@ kern_return_t catch_mach_exception_raise_state(
     return KERN_FAILURE;
 }
 
-kern_return_t catch_mach_exception_raise_state_identity(
+extern "C" kern_return_t catch_mach_exception_raise_state_identity(
     __unused mach_port_t exceptionPort, mach_port_t thread, mach_port_t task,
     __unused exception_type_t exception, __unused mach_exception_data_t code,
     __unused mach_msg_type_number_t codeCount, __unused int *flavor,
