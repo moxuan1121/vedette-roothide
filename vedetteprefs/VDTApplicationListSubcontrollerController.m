@@ -25,7 +25,8 @@ static NSString *VDTApplicationDisplayName(LSApplicationProxy *proxy){
 - (void)viewDidLoad{
     NSMutableArray *applications = [NSMutableArray array];
     NSMutableSet *seenIdentifiers = [NSMutableSet set];
-    for (LSApplicationProxy *proxy in [[LSApplicationWorkspace defaultWorkspace] allApplications]){
+    LSApplicationWorkspace *workspace = [objc_getClass("LSApplicationWorkspace") defaultWorkspace];
+    for (LSApplicationProxy *proxy in [workspace allApplications]){
         if (proxy.bundleIdentifier.length == 0 || [seenIdentifiers containsObject:proxy.bundleIdentifier]){
             continue;
         }
