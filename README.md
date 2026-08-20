@@ -7,6 +7,7 @@
 - 仅监控用户在 Vedette 中明确启用的目标。
 - 所有目标共用 `runningboardd` 内的一条串行队列和一个按需 timer。
 - 固定采样周期约 250ms，不为每个 PID 创建线程。
+- 新 PID 启动后有固定 1.5 秒宽限期；宽限期内持续更新 CPU 基线但不执行终止，避免正常启动的多核峰值误杀。
 - `ri_user_time`、`ri_system_time` 与 `mach_absolute_time` 均以 Mach ticks 计算，CPU 百分比直接使用同单位增量相除。
 - 当前一次超限即终止；将 `VDT_IMMEDIATE_REQUIRED_VIOLATIONS` 改成 2 可扩展为连续两次超限。
 - PID 退出或启动时间变化时立即移除。
@@ -28,6 +29,8 @@ App/daemon 启动时只发送一次 PID 通知。目标进程不读取沙盒外�
 - 恢复默认设置。
 
 应用列表由 Vedette 通过 `LSApplicationWorkspace` 按需读取，不依赖 AltList。赞助、联系、传统监控、CPU throttle 和持续时间设置均已移除。
+
+CPU 阈值允许 `1–800%`。约 100% 表示占满一个 CPU 核，多线程进程可能超过 100%。启动宽限期结束后，任意一个采样窗口达到阈值一次即终止。
 
 ## RootHide 注意事项
 
@@ -66,9 +69,9 @@ gmake package FINALPACKAGE=1 DEBUG=0 THEOS_PACKAGE_SCHEME=roothide ARCHS=arm64e
 
 1. 安装 deb 后执行 RootHide Userspace Reboot，确保 `runningboardd` 载入新版 dylib。
 2. 在 RootHide Bootstrap App List 中允许非关键测试 App 注入。
-3. 在 Vedette 中启用该 App，并设置 CPU 阈值。
+3. 在 Vedette 中启用该 App，并设置 1–800% 的 CPU 阈值。
 4. 彻底退出并重新打开目标 App。
-5. 制造持续 CPU 负载，确认超过阈值后约一个采样周期内退出。
+5. 等待 1.5 秒启动宽限期结束，再制造持续 CPU 负载，确认超过阈值后约一个采样周期内退出。
 6. 重新启动 App 或测试 daemon，确认新 PID 自动恢复监控。
 7. 关闭目标或总开关，确认不再终止。
 8. 没有目标运行时观察 `runningboardd`，确认 Vedette 不保留 CPU sampling timer。

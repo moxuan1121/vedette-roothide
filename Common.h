@@ -18,4 +18,6 @@
 // One shared sampler is created only while at least one immediate target is alive.
 #define VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC (250ull * NSEC_PER_MSEC)
 #define VDT_IMMEDIATE_SAMPLE_LEEWAY_NSEC (25ull * NSEC_PER_MSEC)
+#define VDT_IMMEDIATE_STARTUP_GRACE_NSEC (1500ull * NSEC_PER_MSEC)
 #define VDT_IMMEDIATE_REQUIRED_VIOLATIONS 1
+#define VDT_MAX_CPU_PERCENTAGE 800

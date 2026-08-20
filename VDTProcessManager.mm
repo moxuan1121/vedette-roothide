@@ -23,6 +23,7 @@ NSDictionary *prefs;
 @property(nonatomic) uint64_t startTime;
 @property(nonatomic) uint64_t previousCPUTime;
 @property(nonatomic) uint64_t previousSampleTime;
+@property(nonatomic) uint64_t monitoringStartTime;
 @property(nonatomic) NSUInteger consecutiveViolations;
 @property(nonatomic) NSUInteger percentage;
 @end
@@ -34,12 +35,17 @@ static dispatch_queue_t processQueue;
 static dispatch_source_t immediateTimer;
 static NSMutableDictionary<NSNumber *, VDTManagedProcess *> *managedProcesses;
 static NSDictionary *managerPrefs;
+static uint64_t startupGraceAbsoluteTicks;
 
 static void initialize_process_manager(void){
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
         processQueue = dispatch_queue_create("com.udevs.vedette.process-monitor", DISPATCH_QUEUE_SERIAL);
         managedProcesses = [NSMutableDictionary dictionary];
+        mach_timebase_info_data_t timebaseInfo;
+        mach_timebase_info(&timebaseInfo);
+        startupGraceAbsoluteTicks =
+            (VDT_IMMEDIATE_STARTUP_GRACE_NSEC * timebaseInfo.denom) / timebaseInfo.numer;
     });
 }
 
@@ -175,7 +181,7 @@ static NSUInteger configured_percentage(VDTManagedProcess *process){
         process.type,
         managerPrefs
     ) integerValue];
-    return (NSUInteger)MAX(1, MIN(100, percentage));
+    return (NSUInteger)MAX(1, MIN(VDT_MAX_CPU_PERCENTAGE, percentage));
 }
 
 static NSUInteger immediate_process_count(void){
@@ -222,6 +228,13 @@ static void sample_immediate_processes(void){
 
         process.previousCPUTime = currentCPUTime;
         process.previousSampleTime = now;
+
+        // Ignore normal launch bursts, but keep advancing the CPU baseline so
+        // the first post-grace sample contains only its own sampling window.
+        if (now - process.monitoringStartTime < startupGraceAbsoluteTicks){
+            process.consecutiveViolations = 0;
+            continue;
+        }
 
         // ri_user_time, ri_system_time, and mach_absolute_time are all Mach
         // absolute-time ticks. Dividing them directly keeps the units equal.
@@ -290,9 +303,13 @@ static void apply_configuration(VDTManagedProcess *process){
         return;
     }
     process.percentage = configured_percentage(process);
-    process.previousCPUTime = usage.ri_user_time + usage.ri_system_time;
-    process.previousSampleTime = mach_absolute_time();
-    process.consecutiveViolations = 0;
+    if (process.previousSampleTime == 0){
+        uint64_t now = mach_absolute_time();
+        process.previousCPUTime = usage.ri_user_time + usage.ri_system_time;
+        process.previousSampleTime = now;
+        process.monitoringStartTime = now;
+        process.consecutiveViolations = 0;
+    }
     ensure_immediate_timer();
 }
 

@@ -43,7 +43,7 @@
             preferenceSpecifierNamed:@"立即终止"
             target:nil set:nil get:nil detail:nil cell:PSGroupCell edit:nil];
         [group setProperty:
-            @"仅监控明确启用的目标。CPU 达到阈值一次后，将在下一次约 250 毫秒采样时执行强制终止。首次启用已运行的 App 后，请彻底退出并重新打开。"
+            @"新进程启动后有 1.5 秒宽限期。宽限期结束后，CPU 达到阈值一次即会在下一次约 250 毫秒采样时强制终止。100% 约等于占满一个 CPU 核。"
             forKey:@"footerText"];
         [specifiers addObject:group];
 
@@ -87,10 +87,10 @@
     NSString *key = [specifier propertyForKey:@"key"];
     if ([key isEqualToString:@"percentage"]){
         NSInteger percentage = [value integerValue];
-        if (percentage < 1 || percentage > 100){
+        if (percentage < 1 || percentage > VDT_MAX_CPU_PERCENTAGE){
             UIAlertController *alert = [UIAlertController
                 alertControllerWithTitle:@"阈值无效"
-                message:@"请输入 1 到 100 之间的 CPU 百分比。"
+                message:@"请输入 1 到 800 之间的 CPU 百分比；100% 约等于占满一个 CPU 核。"
                 preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleCancel handler:nil]];
             [self presentViewController:alert animated:YES completion:nil];

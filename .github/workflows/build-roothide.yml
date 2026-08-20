@@ -51,8 +51,11 @@ jobs:
           ! grep -R -E 'monitor_pids|throttle_pids|proc_setcpu_percentage|proc_set_cpumon|VDTViolationPolicy' --include='*.h' --include='*.m' --include='*.mm' --include='*.xm' .
           ! grep -R -E 'AltList|ATLApplication' --include='*.h' --include='*.m' --include='*.mm' --include='Makefile' .
           grep -q 'VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC (250ull \* NSEC_PER_MSEC)' Common.h
+          grep -q 'VDT_IMMEDIATE_STARTUP_GRACE_NSEC (1500ull \* NSEC_PER_MSEC)' Common.h
           grep -q 'VDT_IMMEDIATE_REQUIRED_VIOLATIONS 1' Common.h
+          grep -q 'VDT_MAX_CPU_PERCENTAGE 800' Common.h
           grep -q '((double)elapsedCPU \* 100.0) / (double)elapsedAbsolute' VDTProcessManager.mm
+          grep -q 'now - process.monitoringStartTime < startupGraceAbsoluteTicks' VDTProcessManager.mm
           grep -q 'kill(process.pid, SIGKILL)' VDTProcessManager.mm
           grep -q 'notify_new_pid(NOTIFY_PID_NN, (uint64_t)getpid());' Vedette.xm
           ! grep -q 'processEnabled' Vedette.xm
