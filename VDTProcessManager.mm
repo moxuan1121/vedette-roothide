@@ -7,155 +7,446 @@
 #import "VDTShared.h"
 #import "PrivateHeaders.h"
 
+#include <errno.h>
+#include <mach/mach_time.h>
+#include <signal.h>
+#include <sys/resource.h>
+#include <unistd.h>
+
 NSDictionary *prefs;
 
-static LSApplicationProxy* appproxy_from_bundle_path(NSString *path){
-    return [objc_getClass("LSApplicationProxy") applicationProxyForBundleURL:[NSURL URLWithString:path]];
+@interface VDTManagedProcess : NSObject
+@property(nonatomic) pid_t pid;
+@property(nonatomic) VDTConfigType type;
+@property(nonatomic, copy) NSString *identifier;
+@property(nonatomic, copy) NSString *executablePath;
+@property(nonatomic) uint64_t startTime;
+@property(nonatomic) uint64_t previousCPUTime;
+@property(nonatomic) uint64_t previousSampleTime;
+@property(nonatomic) NSUInteger consecutiveViolations;
+@property(nonatomic) VDTViolationPolicy appliedPolicy;
+@property(nonatomic) NSUInteger percentage;
+@end
+
+@implementation VDTManagedProcess
+@end
+
+static dispatch_queue_t processQueue;
+static dispatch_source_t immediateTimer;
+static NSMutableDictionary<NSNumber *, VDTManagedProcess *> *managedProcesses;
+static NSDictionary *managerPrefs;
+static mach_timebase_info_data_t timebaseInfo;
+
+static void initialize_process_manager(void){
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        processQueue = dispatch_queue_create("com.udevs.vedette.process-monitor", DISPATCH_QUEUE_SERIAL);
+        managedProcesses = [NSMutableDictionary dictionary];
+        mach_timebase_info(&timebaseInfo);
+    });
 }
 
-static LSApplicationProxy* appproxy_from_pid(pid_t pid){
-    char pathBuffer[PROC_PIDPATHINFO_MAXSIZE];
-    proc_pidpath(pid, pathBuffer, sizeof(pathBuffer));
-    NSString *possibleBundlePath = [NSString stringWithUTF8String:pathBuffer].stringByDeletingLastPathComponent;
-    return appproxy_from_bundle_path(possibleBundlePath);
+static BOOL copy_process_rusage(pid_t pid, struct rusage_info_v2 *usage){
+    if (pid <= 0 || usage == NULL){
+        return NO;
+    }
+    memset(usage, 0, sizeof(*usage));
+    return proc_pid_rusage(pid, RUSAGE_INFO_V2, (rusage_info_t *)usage) == 0;
 }
 
-static NSString* name_from_pid(pid_t pid){
-    char nameBuffer[256];
-    proc_name(pid, nameBuffer, sizeof(nameBuffer));
+static NSString *executable_path_from_pid(pid_t pid){
+    char pathBuffer[PROC_PIDPATHINFO_MAXSIZE] = {0};
+    int pathLength = proc_pidpath(pid, pathBuffer, sizeof(pathBuffer));
+    if (pathLength <= 0){
+        return nil;
+    }
+    return [NSString stringWithUTF8String:pathBuffer];
+}
+
+static NSString *name_from_pid(pid_t pid){
+    char nameBuffer[256] = {0};
+    if (proc_name(pid, nameBuffer, sizeof(nameBuffer)) <= 0){
+        return nil;
+    }
     return [NSString stringWithUTF8String:nameBuffer];
 }
 
-/*
-static NSArray* all_running_pids(){
-    int n = proc_listpids(PROC_ALL_PIDS, 0, NULL, 0);
-    int *buffer = (int *)malloc(sizeof(int)*n);
-    int k = proc_listpids(PROC_ALL_PIDS, 0, buffer, n*sizeof(int));
-    
-    NSMutableArray *pids = [NSMutableArray array];
-    for (int i = 0; i < k; i++) {
-        int pid = buffer[i];
-        if (pid == 0) continue;
-        [pids addObject:@(pid)];
+static NSString *application_bundle_path_from_executable_path(NSString *path){
+    if (path.length == 0){
+        return nil;
     }
-    return pids;
-}
-*/
 
-NSArray* pids_with_identifier_and_type(NSArray <NSString *>*identifiers, NSArray <NSNumber *> *types){
-    int n = proc_listpids(PROC_ALL_PIDS, 0, NULL, 0);
-    int *buffer = (int *)malloc(sizeof(int)*n);
-    int k = proc_listpids(PROC_ALL_PIDS, 0, buffer, n*sizeof(int));
-    
-    NSMutableArray *pids = [NSMutableArray array];
-    for (int i = 0; i < k; i++) {
-        int pid = buffer[i];
-        if (pid == 0) continue;
-        
-        LSApplicationProxy *appProxy = appproxy_from_pid(pid);
-        
-        for (NSUInteger idx = 0; idx < identifiers.count; idx++){
-            if ([types[idx] unsignedLongValue] == VDTConfigTypeApp){
-                if (appProxy.bundleIdentifier){
-                    if ([appProxy.bundleIdentifier isEqualToString:identifiers[idx]]){
-                        [pids addObject:@(pid)];
-                    }
-                }
-            }else if ([types[idx] unsignedLongValue] == VDTConfigTypeDaemon && !appProxy.bundleIdentifier){
-                NSString *daemonName = name_from_pid(pid);
-                if ([daemonName isEqualToString:identifiers[idx]]){
-                    [pids addObject:@(pid)];
-                }
-            }
+    NSArray<NSString *> *components = path.pathComponents;
+    NSUInteger appIndex = NSNotFound;
+    for (NSUInteger idx = 0; idx < components.count; idx++){
+        if ([components[idx].pathExtension.lowercaseString isEqualToString:@"app"]){
+            appIndex = idx;
+            break;
         }
     }
-    return pids; // only existed pids are returned
+    if (appIndex == NSNotFound){
+        return nil;
+    }
+    return [NSString pathWithComponents:[components subarrayWithRange:NSMakeRange(0, appIndex + 1)]];
 }
 
-void monitor_pids(NSArray <NSNumber *> *pids, NSArray <NSNumber *> *percentages, NSArray <NSNumber *> *intervals){
-    
-    for (NSUInteger idx = 0; idx < pids.count; idx++){
-        pid_t pid = [pids[idx] intValue];
-        if (pid > 0){
-            int percentage = [percentages[idx] intValue];
-            int interval = [intervals[idx] intValue];
-            
-            proc_disable_cpumon(pid);
-            
-            if (percentage > 0 && interval > 0){
-                if (proc_set_cpumon_params_fatal(pid, percentage, interval) == 0){
-                    HBLogDebug(@"Monitoring pid %d with percentage %d%% and interval %ds", pid, percentage, interval);
-                }
-            }else{
-                if (proc_set_cpumon_defaults(pid) == 0){
-                    HBLogDebug(@"Restore CPU limits for pid: %d", pid);
-                }
-            }
-            
-            proc_resume_cpumon(pid);
+static NSString *bundle_identifier_from_executable_path(NSString *path){
+    NSString *bundlePath = application_bundle_path_from_executable_path(path);
+    if (bundlePath.length == 0){
+        return nil;
+    }
+
+    NSString *bundleIdentifier = [NSBundle bundleWithPath:bundlePath].bundleIdentifier;
+    if (bundleIdentifier.length > 0){
+        return bundleIdentifier;
+    }
+
+    LSApplicationProxy *proxy = [objc_getClass("LSApplicationProxy") applicationProxyForBundleURL:[NSURL fileURLWithPath:bundlePath]];
+    return proxy.bundleIdentifier;
+}
+
+static VDTManagedProcess *process_identity_from_pid(pid_t pid){
+    struct rusage_info_v2 usage;
+    NSString *path = executable_path_from_pid(pid);
+    if (path.length == 0 || !copy_process_rusage(pid, &usage)){
+        return nil;
+    }
+
+    VDTManagedProcess *process = [VDTManagedProcess new];
+    process.pid = pid;
+    process.executablePath = path;
+    process.startTime = usage.ri_proc_start_abstime;
+
+    NSString *bundleIdentifier = bundle_identifier_from_executable_path(path);
+    if (bundleIdentifier.length > 0){
+        process.type = VDTConfigTypeApp;
+        process.identifier = bundleIdentifier;
+    }else{
+        process.type = VDTConfigTypeDaemon;
+        process.identifier = name_from_pid(pid);
+    }
+
+    if (process.identifier.length == 0){
+        return nil;
+    }
+    return process;
+}
+
+static BOOL identity_matches_process(VDTManagedProcess *expected, struct rusage_info_v2 *usageOut){
+    if (!expected || expected.pid <= 0){
+        return NO;
+    }
+
+    struct rusage_info_v2 usage;
+    if (!copy_process_rusage(expected.pid, &usage) || usage.ri_proc_start_abstime != expected.startTime){
+        return NO;
+    }
+
+    NSString *path = executable_path_from_pid(expected.pid);
+    if (path.length == 0 || ![path isEqualToString:expected.executablePath]){
+        return NO;
+    }
+
+    NSString *currentIdentifier = expected.type == VDTConfigTypeApp
+        ? bundle_identifier_from_executable_path(path)
+        : name_from_pid(expected.pid);
+    if (currentIdentifier.length == 0 || ![currentIdentifier isEqualToString:expected.identifier]){
+        return NO;
+    }
+
+    if (usageOut){
+        *usageOut = usage;
+    }
+    return YES;
+}
+
+static BOOL global_monitoring_enabled(void){
+    id enabledValue = valueForKeyWithPrefs(@"enabled", managerPrefs);
+    return enabledValue ? [enabledValue boolValue] : YES;
+}
+
+static BOOL process_config_enabled(VDTManagedProcess *process){
+    return global_monitoring_enabled() &&
+        [valueForProcessConfigKeyWithPrefs(process.identifier, @"enabled", @NO, process.type, managerPrefs) boolValue];
+}
+
+static VDTViolationPolicy configured_policy(VDTManagedProcess *process){
+    return (VDTViolationPolicy)[valueForProcessConfigKeyWithPrefs(
+        process.identifier,
+        @"violationPolicy",
+        @(VDTViolationPolicyImmediateTerminate),
+        process.type,
+        managerPrefs
+    ) unsignedIntegerValue];
+}
+
+static NSUInteger configured_percentage(VDTManagedProcess *process){
+    NSInteger percentage = [valueForProcessConfigKeyWithPrefs(
+        process.identifier,
+        @"percentage",
+        @80,
+        process.type,
+        managerPrefs
+    ) integerValue];
+    return (NSUInteger)MAX(1, MIN(100, percentage));
+}
+
+void monitor_pids(NSArray<NSNumber *> *pids, NSArray<NSNumber *> *percentages, NSArray<NSNumber *> *intervals){
+    NSUInteger count = MIN(pids.count, MIN(percentages.count, intervals.count));
+    for (NSUInteger idx = 0; idx < count; idx++){
+        pid_t pid = pids[idx].intValue;
+        if (pid <= 0){
+            continue;
+        }
+
+        int percentage = percentages[idx].intValue;
+        int interval = intervals[idx].intValue;
+        proc_disable_cpumon(pid);
+        if (percentage > 0 && interval > 0){
+            proc_set_cpumon_params_fatal(pid, percentage, interval);
+        }else{
+            proc_set_cpumon_defaults(pid);
+        }
+        proc_resume_cpumon(pid);
+    }
+}
+
+void throttle_pids(NSArray<NSNumber *> *pids, NSArray<NSNumber *> *percentages){
+    NSUInteger count = MIN(pids.count, percentages.count);
+    for (NSUInteger idx = 0; idx < count; idx++){
+        pid_t pid = pids[idx].intValue;
+        if (pid <= 0){
+            continue;
+        }
+
+        int percentage = percentages[idx].intValue;
+        if (percentage > 0){
+            proc_setcpu_percentage(pid, PROC_SETCPU_ACTION_THROTTLE, percentage);
+        }else{
+            proc_clear_cpulimits(pid);
         }
     }
 }
 
-void throttle_pids(NSArray <NSNumber *> *pids, NSArray <NSNumber *> *percentages){
-    
-    for (NSUInteger idx = 0; idx < pids.count; idx++){
-        pid_t pid = [pids[idx] intValue];
-        if (pid > 0){
-            int percentage = [percentages[idx] intValue];
-            
-            if (percentage > 0){
-                if (proc_setcpu_percentage(pid, PROC_SETCPU_ACTION_THROTTLE, percentage) == 0){
-                    HBLogDebug(@"Throttled pid %d with percentage %d%% ", pid, percentage);
-                }
-            }else{
-                if (proc_clear_cpulimits(pid) == 0){
-                    HBLogDebug(@"Restored CPU limits for pid %d ", pid);
-                }
-            }
+static NSUInteger immediate_process_count(void){
+    NSUInteger count = 0;
+    for (VDTManagedProcess *process in managedProcesses.allValues){
+        if (process.appliedPolicy == VDTViolationPolicyImmediateTerminate){
+            count++;
+        }
+    }
+    return count;
+}
+
+static void stop_immediate_timer_if_idle(void){
+    if (immediateTimer && immediate_process_count() == 0){
+        dispatch_source_cancel(immediateTimer);
+        immediateTimer = nil;
+    }
+}
+
+static void remove_managed_process(NSNumber *pidKey){
+    [managedProcesses removeObjectForKey:pidKey];
+    stop_immediate_timer_if_idle();
+}
+
+static BOOL immediate_policy_still_enabled(VDTManagedProcess *process){
+    return process_config_enabled(process) &&
+        configured_policy(process) == VDTViolationPolicyImmediateTerminate &&
+        !VDTIsProtectedProcessIdentifier(process.identifier) &&
+        !VDTIsProtectedProcessIdentifier(process.executablePath.lastPathComponent);
+}
+
+static double nanoseconds_from_absolute_delta(uint64_t delta){
+    return ((double)delta * (double)timebaseInfo.numer) / (double)timebaseInfo.denom;
+}
+
+static void sample_immediate_processes(void){
+    uint64_t now = mach_absolute_time();
+    NSArray<NSNumber *> *pidKeys = managedProcesses.allKeys.copy;
+
+    for (NSNumber *pidKey in pidKeys){
+        VDTManagedProcess *process = managedProcesses[pidKey];
+        if (process.appliedPolicy != VDTViolationPolicyImmediateTerminate){
+            continue;
+        }
+
+        struct rusage_info_v2 usage;
+        if (!identity_matches_process(process, &usage) || !immediate_policy_still_enabled(process)){
+            remove_managed_process(pidKey);
+            continue;
+        }
+
+        uint64_t currentCPUTime = usage.ri_user_time + usage.ri_system_time;
+        uint64_t elapsedAbsolute = now - process.previousSampleTime;
+        uint64_t elapsedCPU = currentCPUTime >= process.previousCPUTime
+            ? currentCPUTime - process.previousCPUTime
+            : 0;
+
+        process.previousCPUTime = currentCPUTime;
+        process.previousSampleTime = now;
+
+        double elapsedNanoseconds = nanoseconds_from_absolute_delta(elapsedAbsolute);
+        double cpuPercentage = elapsedNanoseconds > 0.0
+            ? ((double)elapsedCPU * 100.0) / elapsedNanoseconds
+            : 0.0;
+
+        if (cpuPercentage >= (double)process.percentage){
+            process.consecutiveViolations++;
+        }else{
+            process.consecutiveViolations = 0;
+        }
+
+        if (process.consecutiveViolations < VDT_IMMEDIATE_REQUIRED_VIOLATIONS){
+            continue;
+        }
+
+        // Re-read identity immediately before SIGKILL. This rejects an exited
+        // process, a reused PID, a changed config, and every protected target.
+        if (!identity_matches_process(process, NULL) || !immediate_policy_still_enabled(process)){
+            remove_managed_process(pidKey);
+            continue;
+        }
+
+        if (kill(process.pid, SIGKILL) == 0 || errno == ESRCH){
+            remove_managed_process(pidKey);
         }
     }
 }
 
-void received_new_proc(pid_t pid){
-    
-    int percentage = 80;
-    int interval = 120;
-    
-    LSApplicationProxy *appProxy = appproxy_from_pid(pid);
-    VDTViolationPolicy violationPolicy = VDTViolationPolicyMonitorAndTerminate;
-    
-    if (appProxy.bundleIdentifier){ //isApplication
-        percentage = [valueForProcessConfigKeyWithPrefs(appProxy.bundleIdentifier, @"percentage", @80, VDTConfigTypeApp, prefs) intValue];
-        interval = [valueForProcessConfigKeyWithPrefs(appProxy.bundleIdentifier, @"interval", @120, VDTConfigTypeApp, prefs) intValue];
-        violationPolicy = [valueForProcessConfigKeyWithPrefs(appProxy.bundleIdentifier, @"violationPolicy", @(VDTViolationPolicyMonitorAndTerminate), VDTConfigTypeApp, prefs) unsignedLongValue];
-    }else{ //isDaemon
-        NSString *daemonName = name_from_pid(pid);
-        percentage = [valueForProcessConfigKeyWithPrefs(daemonName, @"percentage", @80, VDTConfigTypeDaemon, prefs) intValue];
-        interval = [valueForProcessConfigKeyWithPrefs(daemonName, @"interval", @120, VDTConfigTypeDaemon, prefs) intValue];
-        violationPolicy = [valueForProcessConfigKeyWithPrefs(daemonName, @"violationPolicy", @(VDTViolationPolicyMonitorAndTerminate), VDTConfigTypeDaemon, prefs) unsignedLongValue];
-
+static void ensure_immediate_timer(void){
+    if (immediateTimer || immediate_process_count() == 0){
+        return;
     }
-    
-    switch (violationPolicy) {
+
+    immediateTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, processQueue);
+    dispatch_source_set_timer(
+        immediateTimer,
+        dispatch_time(DISPATCH_TIME_NOW, VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC),
+        VDT_IMMEDIATE_SAMPLE_INTERVAL_NSEC,
+        VDT_IMMEDIATE_SAMPLE_LEEWAY_NSEC
+    );
+    dispatch_source_set_event_handler(immediateTimer, ^{
+        @autoreleasepool {
+            sample_immediate_processes();
+        }
+    });
+    dispatch_resume(immediateTimer);
+}
+
+static void clear_applied_policy(VDTManagedProcess *process){
+    BOOL identityIsCurrent = identity_matches_process(process, NULL);
+    switch (process.appliedPolicy){
         case VDTViolationPolicyMonitorAndTerminate:
-            monitor_pids(@[@(pid)], @[@(percentage)], @[@(interval)]);
+            if (identityIsCurrent){
+                monitor_pids(@[@(process.pid)], @[@0], @[@0]);
+            }
             break;
         case VDTViolationPolicyThrottle:
-            throttle_pids(@[@(pid)], @[@(percentage)]);
+            if (identityIsCurrent){
+                throttle_pids(@[@(process.pid)], @[@0]);
+            }
             break;
         default:
             break;
     }
+    process.appliedPolicy = VDTViolationPolicyNone;
+    process.consecutiveViolations = 0;
 }
 
-/*
-void restore_all_monitors(){
-    NSArray *pids = all_running_pids();
-    NSMutableArray *zerosArray = [NSMutableArray array];
-    for (NSUInteger idx = 0; idx < pids.count; idx++){
-        [zerosArray addObject:@0];
+static void apply_configuration(VDTManagedProcess *process){
+    clear_applied_policy(process);
+    if (!identity_matches_process(process, NULL) || !process_config_enabled(process)){
+        remove_managed_process(@(process.pid));
+        return;
     }
-    monitor_pids(pids, zerosArray, zerosArray);
+
+    VDTViolationPolicy policy = configured_policy(process);
+    NSUInteger percentage = configured_percentage(process);
+    switch (policy){
+        case VDTViolationPolicyImmediateTerminate: {
+            if (VDTIsProtectedProcessIdentifier(process.identifier) ||
+                VDTIsProtectedProcessIdentifier(process.executablePath.lastPathComponent)){
+                remove_managed_process(@(process.pid));
+                return;
+            }
+            struct rusage_info_v2 usage;
+            if (!identity_matches_process(process, &usage)){
+                remove_managed_process(@(process.pid));
+                return;
+            }
+            process.percentage = percentage;
+            process.previousCPUTime = usage.ri_user_time + usage.ri_system_time;
+            process.previousSampleTime = mach_absolute_time();
+            process.consecutiveViolations = 0;
+            process.appliedPolicy = policy;
+            ensure_immediate_timer();
+            break;
+        }
+        case VDTViolationPolicyMonitorAndTerminate: {
+            NSInteger interval = [valueForProcessConfigKeyWithPrefs(
+                process.identifier, @"interval", @120, process.type, managerPrefs
+            ) integerValue];
+            interval = MAX(1, interval);
+            monitor_pids(@[@(process.pid)], @[@(percentage)], @[@(interval)]);
+            process.appliedPolicy = policy;
+            break;
+        }
+        case VDTViolationPolicyThrottle:
+            throttle_pids(@[@(process.pid)], @[@(percentage)]);
+            process.appliedPolicy = policy;
+            break;
+        default:
+            remove_managed_process(@(process.pid));
+            break;
+    }
+    stop_immediate_timer_if_idle();
 }
-*/
+
+void update_process_preferences(NSDictionary *newPrefs){
+    initialize_process_manager();
+    NSDictionary *prefsCopy = [newPrefs copy] ?: @{};
+    dispatch_async(processQueue, ^{
+        managerPrefs = prefsCopy;
+        NSArray<NSNumber *> *pidKeys = managedProcesses.allKeys.copy;
+        for (NSNumber *pidKey in pidKeys){
+            VDTManagedProcess *process = managedProcesses[pidKey];
+            if (!identity_matches_process(process, NULL)){
+                remove_managed_process(pidKey);
+                continue;
+            }
+            apply_configuration(process);
+        }
+        stop_immediate_timer_if_idle();
+    });
+}
+
+void received_new_proc(pid_t pid){
+    if (pid <= 0){
+        return;
+    }
+    initialize_process_manager();
+    NSDictionary *freshPrefs = getPrefs();
+    dispatch_async(processQueue, ^{
+        // Reading here closes the race between the preference-change callback
+        // and an already-running process announcing that it was just enabled.
+        managerPrefs = freshPrefs;
+        VDTManagedProcess *process = process_identity_from_pid(pid);
+        if (!process){
+            return;
+        }
+        managedProcesses[@(pid)] = process;
+        apply_configuration(process);
+    });
+}
+
+void restore_all_managed_processes(void){
+    initialize_process_manager();
+    dispatch_async(processQueue, ^{
+        for (VDTManagedProcess *process in managedProcesses.allValues.copy){
+            clear_applied_policy(process);
+        }
+        [managedProcesses removeAllObjects];
+        stop_immediate_timer_if_idle();
+    });
+}

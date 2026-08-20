@@ -1,5 +1,3 @@
-TARGET := iphone:clang:latest:7.0
-
 include $(THEOS)/makefiles/common.mk
 
 BUNDLE_NAME = VedettePrefs
@@ -9,6 +7,7 @@ VedettePrefs_FRAMEWORKS = UIKit
 VedettePrefs_PRIVATE_FRAMEWORKS = Preferences
 VedettePrefs_EXTRA_FRAMEWORKS = AltList
 VedettePrefs_INSTALL_PATH = /Library/PreferenceBundles
-VedettePrefs_CFLAGS = -fobjc-arc
+VedettePrefs_CFLAGS = -fobjc-arc -O2 -DNDEBUG -DDISABLE_ROOTLESS_COMPAT_WARNING
+VedettePrefs_CCFLAGS = -O2 -DNDEBUG
 
 include $(THEOS_MAKE_PATH)/bundle.mk

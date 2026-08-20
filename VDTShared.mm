@@ -104,3 +104,53 @@ void setValueForProcessConfigKeyWithPrefs(NSString *identifier, NSString *key, i
 void setValueForProcessConfigKey(NSString *identifier, NSString *key, id value, VDTConfigType type){
     setValueForProcessConfigKeyWithPrefs(identifier, key, value, type, nil);
 }
+
+BOOL VDTIsProtectedProcessIdentifier(NSString *identifier){
+    if (identifier.length == 0){
+        return YES;
+    }
+
+    NSString *lowerIdentifier = identifier.lastPathComponent.lowercaseString;
+    static NSSet<NSString *> *protectedNames;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        protectedNames = [NSSet setWithArray:@[
+            @"launchd",
+            @"springboard",
+            @"backboardd",
+            @"runningboardd",
+            @"kernel_task",
+            @"installd",
+            @"jailbreakd",
+            @"launchdhook",
+            @"opainject",
+            @"jbctl",
+            @"tweakloader",
+            @"bootstrapd",
+            @"roothide",
+            @"dopamine",
+            @"com.apple.springboard",
+            @"com.apple.backboardd",
+            @"com.apple.runningboardd",
+            @"com.apple.installd",
+            @"com.roothide.bootstrap",
+            @"com.opa334.dopamine"
+        ]];
+    });
+
+    if ([protectedNames containsObject:lowerIdentifier]){
+        return YES;
+    }
+
+    // RootHide and Dopamine helper names vary between releases. Conservatively
+    // protect future core helpers as well as the known names above.
+    NSArray<NSString *> *protectedFragments = @[
+        @"roothide", @"dopamine", @"jailbreak", @"launchdhook", @"opainject"
+    ];
+    for (NSString *fragment in protectedFragments){
+        if ([lowerIdentifier containsString:fragment]){
+            return YES;
+        }
+    }
+    return NO;
+}
